@@ -1,0 +1,129 @@
+GNU AFFERO GENERAL PUBLIC LICENSE
+Version 3, 19 November 2007
+
+Copyright (c) 2024 Routing.Run
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+TERMS AND CONDITIONS
+
+0. Definitions.
+
+"This License" refers to version 3 of the GNU Affero General Public License.
+
+"Copyright" also means copyright-like laws that apply to other kinds of
+works, such as semiconductor masks.
+
+"The Program" refers to any copyrightable work licensed under this
+License.  Each licensee is addressed as "you".  "Licensees" and
+"recipients" may be individuals or organizations.
+
+To "modify" a work means to copy from or adapt all or part of the work
+in a fashion requiring copyright permission, other than the making of an
+exact copy.  The resulting work is called a "modified version" of the
+earlier work or a work "based on" the earlier work.
+
+A "covered work" means either the unmodified Program or a work based
+on the Program.
+
+1. Source Code.
+
+The "source code" for a work means the preferred form of the work
+for making modifications to it.  "Object code" means any non-source
+form of a work.
+
+A "Standard Interface" means an interface that either is an official
+standard defined by a recognized standards body or, in the case of
+interfaces specified for a particular programming language, one that
+is widely used among developers working in that language.
+
+The "System Libraries" of an executable work include anything, other
+than the work as a whole, that (a) is included in the normal form of
+packaging a Major Component, but which is not part of that Major
+Component, and (b) serves only to enable use of the work with that
+Major Component, or to implement a Standard Interface for which an
+implementation is available to the public in source code form.
+
+A "Major Component", in this context, means a major essential component
+(kernel, window system, and so on) of the specific operating system
+(if any) on which the executable work runs, or a compiler used to
+produce the work, or an object code interpreter used to run it.
+
+2. Basic Permissions.
+
+All rights granted under this License are granted for the term of
+copyright on the Program, and are irrevocable provided the stated
+conditions are met.  This License explicitly affirms your unlimited
+permission to run the unmodified Program.  The output from running a
+covered work is covered by this License only if the output, given its
+content, constitutes a covered work.
+
+Subject to the above terms and conditions, you have the following
+permissions:
+
+a) You may make verbatim copies of the Program.
+
+b) You may modify your copy or copies of the Program or any portion
+of it, and copy and distribute such modifications or work under the
+terms of Section 1 above, provided that you also meet all of these
+conditions:
+   - You must cause the modified files to carry prominent notices stating
+     that you changed the files and the date of any change.
+   - You must license the entire work, as a whole, under this License
+     to anyone who comes into possession of a copy.
+
+c) You may copy and distribute the Program (or a work based on it,
+under Section 2) in object code or executable form under the terms of
+Sections 1 and 2 above, provided that you also do one of these things:
+   - Accompany it with complete corresponding machine-readable source
+     code, which must be distributed under the terms of Sections 1 and
+     2 above on a medium customarily used for software interchange.
+   - Accompany it with a written offer, valid for at least three years,
+     to give any third party, for a charge no more than your cost of
+     physically performing source distribution, a complete machine-readable
+     copy of the corresponding source code, to be distributed under the
+     terms of Sections 1 and 2 above on a medium customarily used for
+     software interchange.
+
+3. Linking the Program with Network Services.
+
+If you modify the Program to run on a network service (including but
+not limited to a web server, API gateway, or any service that processes
+requests from third parties), you must also make the source code of
+the modified version available to all users of that network service.
+This requirement applies regardless of whether the service is offered
+for free or for compensation.
+
+4. Termination.
+
+You may not propagate or modify the Program except as expressly
+provided under this License.  Any attempt otherwise to propagate or
+modify it is void, and will automatically terminate your rights under
+this License.
+
+5. No Warranty.
+
+THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER
+EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM IS
+WITH YOU.  SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF
+ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
+
+6. Acceptance of License.
+
+You are not required to accept this License, since you have not
+signed it.  However, nothing else grants you permission to propagate
+or modify the Program.  These actions are prohibited by law if you
+do not accept this License.
