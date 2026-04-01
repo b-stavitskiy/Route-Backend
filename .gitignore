@@ -1,0 +1,43 @@
+# Environment files - NEVER commit these
+.env
+.env.local
+.env.*.local
+.env.production
+.env.production.local
+
+# Config files with API keys and sensitive data
+# Note: configs/ is already tracked by git. To fully ignore it, run:
+# git rm --cached -r configs/
+configs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Build
+build/
+dist/
+
+# Misc
+*.bak
+*.tmp
+*.temp

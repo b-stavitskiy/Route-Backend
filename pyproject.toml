@@ -1,0 +1,57 @@
+[project]
+name = "routing-backend"
+version = "0.1.0"
+description = "OpenAI-compatible API gateway with multi-provider routing"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "starlette>=0.36.0",
+    "python-multipart>=0.0.9",
+    "sqlalchemy[asyncio]>=2.0.27",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "redis>=5.0.0",
+    "httpx>=0.27.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[argon2]>=1.7.4",
+    "authlib>=1.3.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "pyyaml>=6.0.0",
+    "python-dotenv>=1.0.0",
+    "arq>=0.25.0",
+    "email-validator>=2.1.0",
+    "sse-starlette>=2.0.0",
+    "tiktoken>=0.7.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "httpx>=0.27.0",
+    "ruff>=0.3.0",
+    "mypy>=1.9.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

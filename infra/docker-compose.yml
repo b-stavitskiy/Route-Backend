@@ -1,0 +1,76 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENCODE_API_KEY=${OPENCODE_API_KEY}
+      - CHUTES_API_KEY=${CHUTES_API_KEY}
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - WHOP_CLIENT_ID=${WHOP_CLIENT_ID}
+      - WHOP_CLIENT_SECRET=${WHOP_CLIENT_SECRET}
+      - WHOP_WEBHOOK_SECRET=${WHOP_WEBHOOK_SECRET}
+      - UNOSEND_API_KEY=${UNOSEND_API_KEY}
+      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI:-https://routing.run/auth/callback}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.worker
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - WHOP_CLIENT_ID=${WHOP_CLIENT_ID}
+      - WHOP_CLIENT_SECRET=${WHOP_CLIENT_SECRET}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  redis_data:
