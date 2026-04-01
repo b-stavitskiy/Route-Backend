@@ -14,14 +14,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Database
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/routing"
+    # Database (required)
+    database_url: str
 
-    # Redis
-    redis_url: str = "redis://localhost:6379"
+    # Redis (required)
+    redis_url: str
 
-    # JWT
-    jwt_secret_key: str = "change-me-in-production"
+    # JWT (required)
+    jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 30
@@ -54,13 +54,13 @@ class Settings(BaseSettings):
     github_client_secret: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
-    oauth_redirect_uri: str = "http://localhost:3000/auth/callback"
+    oauth_redirect_uri: str = ""
 
     # Email
     email_provider: str = "unosend"
     unosend_api_key: str = ""
-    from_email: str = "noreply@routing.run"
-    from_name: str = "Routing.Run"
+    from_email: str = ""
+    from_name: str = ""
 
     # Whop
     whop_client_id: str = ""
@@ -78,10 +78,15 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     debug: bool = False
-    cors_origins: str = '["http://localhost:3000"]'
+    cors_origins: str = "[]"
 
     # Display
     cost_multiplier: float = 1.65
+
+    # Config Repo
+    config_github_token: str = ""
+    config_repo_url: str = "https://github.com/RoutingRun/Route-Configs.git"
+    config_branch: str = "main"
 
     # Provider API Keys
     minimax_api_key: str = ""
@@ -116,10 +121,12 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
+        if not self.cors_origins:
+            return []
         try:
             return json.loads(self.cors_origins)
         except:
-            return ["http://localhost:3000"]
+            return []
 
 
 class DatabaseSettings(BaseSettings):
@@ -158,15 +165,18 @@ class ProviderConfig:
     _instance = None
     _config: dict[str, Any] = {}
     _plans_config: dict[str, Any] = {}
+    _initialized: bool = False
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._load_config()
         return cls._instance
 
     def _load_config(self):
-        config_dir = Path(__file__).parent.parent.parent.parent / "configs"
+        if self._initialized:
+            return
+
+        config_dir = Path(__file__).parent.parent.parent.parent / "config"
         provider_config_path = config_dir / "provider.yaml"
         plans_config_path = config_dir / "plans.yaml"
 
@@ -174,6 +184,27 @@ class ProviderConfig:
             "providers": load_yaml_config(str(provider_config_path)),
         }
         self._plans_config = load_yaml_config(str(plans_config_path))
+        self._initialized = True
+
+    async def load_remote_config(self, settings: Settings | None = None):
+        if settings is None:
+            settings = get_settings()
+
+        from packages.shared.config_puller import get_configs
+
+        configs = await get_configs(
+            use_remote=bool(settings.config_github_token),
+            github_token=settings.config_github_token,
+            repo_url=settings.config_repo_url,
+            branch=settings.config_branch,
+        )
+
+        if configs.get("provider.yaml"):
+            self._config = {"providers": configs["provider.yaml"]}
+        if configs.get("plans.yaml"):
+            self._plans_config = configs["plans.yaml"]
+
+        self._initialized = True
 
     def get_provider_config(self, provider: str) -> dict[str, Any] | None:
         return self._config.get("providers", {}).get("providers", {}).get(provider)

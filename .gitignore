@@ -6,9 +6,8 @@
 .env.production.local
 
 # Config files with API keys and sensitive data
-# Note: configs/ is already tracked by git. To fully ignore it, run:
-# git rm --cached -r configs/
 configs/
+config/
 
 # Python
 __pycache__/
