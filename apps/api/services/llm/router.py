@@ -1,10 +1,14 @@
 import asyncio
+import json
+import logging
+import re
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import uuid4
 
 from redis.asyncio import Redis
+
 from apps.api.core.config import get_provider_config
 from apps.api.services.llm.base import (
     AnthropicCompatProvider,
@@ -17,6 +21,33 @@ from packages.shared.exceptions import (
     ProviderError,
     ProviderTimeoutError,
 )
+
+logger = logging.getLogger("routing.run.router")
+
+
+def sanitize_response(response: dict[str, Any]) -> dict[str, Any]:
+    try:
+        if "choices" in response:
+            for choice in response["choices"]:
+                if "message" in choice and "content" in choice["message"]:
+                    content = choice["message"]["content"]
+                    if isinstance(content, str) and (
+                        "\n" in content or "\r" in content or "\t" in content
+                    ):
+                        choice["message"]["content"] = (
+                            content.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
+                        )
+                if "delta" in choice and "content" in choice["delta"]:
+                    content = choice["delta"]["content"]
+                    if isinstance(content, str) and (
+                        "\n" in content or "\r" in content or "\t" in content
+                    ):
+                        choice["delta"]["content"] = (
+                            content.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
+                        )
+    except Exception:
+        pass
+    return response
 
 
 class CircuitBreaker:
@@ -101,10 +132,19 @@ class LLMRouter:
 
         provider_chain = self.provider_config.get_provider_chain(model, user_plan)
         if not provider_chain:
+            logger.warning(
+                f"No provider chain found for model={model} plan={user_plan}", component="router"
+            )
             raise InvalidModelError(model)
 
         routing_config = self.provider_config.get_routing_config()
         retry_count = routing_config.get("retry_count", 2)
+
+        logger.info(
+            f"Routing chat request | model={model} | plan={user_plan} | request_id={request_id} | "
+            f"providers={len(provider_chain)} | max_retries={retry_count}",
+            component="router",
+        )
 
         last_error: Exception | None = None
 
@@ -114,10 +154,20 @@ class LLMRouter:
                 model_id = provider_entry.get("model_id", model)
 
                 if self.circuit_breaker.is_open(provider_name):
+                    logger.debug(
+                        f"Circuit breaker open, skipping provider={provider_name}",
+                        component="router",
+                    )
                     continue
 
                 try:
                     client = await self.get_provider_client(provider_name, model_id)
+
+                    logger.info(
+                        f"Calling provider | provider={provider_name} | "
+                        f"model={model_id} | attempt={attempt + 1}",
+                        component="router",
+                    )
 
                     start_time = time.time()
                     response = await client.chat_complete(
@@ -138,27 +188,57 @@ class LLMRouter:
                     response["model"] = model
                     response["latency_ms"] = latency_ms
 
-                    return response
+                    logger.info(
+                        f"Provider response success | provider={provider_name} | "
+                        f"model={model_id} | latency_ms={latency_ms}",
+                        component="router",
+                    )
+
+                    return sanitize_response(response)
 
                 except ProviderTimeoutError as e:
                     last_error = e
                     self.circuit_breaker.record_failure(provider_name)
                     await self._update_provider_health(provider_name, 0, True)
+                    logger.warning(
+                        f"Provider timeout | provider={provider_name} | "
+                        f"model={model_id} | error={e}",
+                        component="router",
+                    )
                     continue
 
                 except ProviderError as e:
                     last_error = e
                     self.circuit_breaker.record_failure(provider_name)
                     await self._update_provider_health(provider_name, 0, True)
+                    logger.warning(
+                        f"Provider error | provider={provider_name} | model={model_id} | error={e}",
+                        component="router",
+                    )
                     continue
 
                 except Exception as e:
                     last_error = e
                     self.circuit_breaker.record_failure(provider_name)
+                    logger.error(
+                        f"Unexpected error | provider={provider_name} | "
+                        f"model={model_id} | error={e}",
+                        component="router",
+                    )
                     continue
 
             if attempt < retry_count:
-                await asyncio.sleep(routing_config.get("retry_delay_ms", 200) / 1000)
+                delay_ms = routing_config.get("retry_delay_ms", 200)
+                logger.info(
+                    f"Retrying request | attempt={attempt + 1} | delay_ms={delay_ms}",
+                    component="router",
+                )
+                await asyncio.sleep(delay_ms / 1000)
+
+        logger.error(
+            f"All providers failed | model={model} | last_error={last_error}",
+            component="router",
+        )
 
         if last_error:
             raise last_error
@@ -181,10 +261,20 @@ class LLMRouter:
 
         provider_chain = self.provider_config.get_provider_chain(model, user_plan)
         if not provider_chain:
+            logger.warning(
+                f"No provider chain found for model={model} plan={user_plan}", component="router"
+            )
             raise InvalidModelError(model)
 
         routing_config = self.provider_config.get_routing_config()
         retry_count = routing_config.get("retry_count", 2)
+
+        logger.info(
+            f"Routing stream request | model={model} | plan={user_plan} | "
+            f"request_id={request_id} | providers={len(provider_chain)} | "
+            f"max_retries={retry_count}",
+            component="router",
+        )
 
         last_error: Exception | None = None
 
@@ -194,10 +284,20 @@ class LLMRouter:
                 model_id = provider_entry.get("model_id", model)
 
                 if self.circuit_breaker.is_open(provider_name):
+                    logger.debug(
+                        f"Circuit breaker open, skipping provider={provider_name}",
+                        component="router",
+                    )
                     continue
 
                 try:
                     client = await self.get_provider_client(provider_name, model_id)
+
+                    logger.info(
+                        f"Calling stream provider | provider={provider_name} | "
+                        f"model={model_id} | attempt={attempt + 1}",
+                        component="router",
+                    )
 
                     start_time = time.time()
                     stream_gen = client.chat_complete_stream(
@@ -215,32 +315,66 @@ class LLMRouter:
                             self.circuit_breaker.record_success(provider_name)
                             await self._update_provider_health(provider_name, latency_ms, False)
                             first_chunk = False
+                            logger.info(
+                                f"Stream started | provider={provider_name} | "
+                                f"model={model_id} | first_chunk_latency_ms={latency_ms}",
+                                component="router",
+                            )
 
                         chunk["request_id"] = request_id
                         chunk["provider"] = provider_name
                         yield chunk
 
+                    logger.info(
+                        f"Stream completed | provider={provider_name} | model={model_id}",
+                        component="router",
+                    )
                     return
 
                 except ProviderTimeoutError as e:
                     last_error = e
                     self.circuit_breaker.record_failure(provider_name)
                     await self._update_provider_health(provider_name, 0, True)
+                    logger.warning(
+                        f"Stream provider timeout | provider={provider_name} | "
+                        f"model={model_id} | error={e}",
+                        component="router",
+                    )
                     continue
 
                 except ProviderError as e:
                     last_error = e
                     self.circuit_breaker.record_failure(provider_name)
                     await self._update_provider_health(provider_name, 0, True)
+                    logger.warning(
+                        f"Stream provider error | provider={provider_name} | "
+                        f"model={model_id} | error={e}",
+                        component="router",
+                    )
                     continue
 
                 except Exception as e:
                     last_error = e
                     self.circuit_breaker.record_failure(provider_name)
+                    logger.error(
+                        f"Stream unexpected error | provider={provider_name} | "
+                        f"model={model_id} | error={e}",
+                        component="router",
+                    )
                     continue
 
             if attempt < retry_count:
-                await asyncio.sleep(routing_config.get("retry_delay_ms", 200) / 1000)
+                delay_ms = routing_config.get("retry_delay_ms", 200)
+                logger.info(
+                    f"Retrying stream request | attempt={attempt + 1} | delay_ms={delay_ms}",
+                    component="router",
+                )
+                await asyncio.sleep(delay_ms / 1000)
+
+        logger.error(
+            f"All stream providers failed | model={model} | last_error={last_error}",
+            component="router",
+        )
 
         if last_error:
             raise last_error

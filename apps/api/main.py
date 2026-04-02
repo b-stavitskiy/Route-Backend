@@ -1,3 +1,5 @@
+import logging
+import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -5,49 +7,153 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from apps.api.api.v1.router import router as v1_router
-from apps.api.core.config import get_settings
+from apps.api.core.config import get_provider_config, get_settings
 from apps.api.core.middleware import (
     AuthMiddleware,
     ExceptionHandlerMiddleware,
     MetricsMiddleware,
 )
+from apps.api.services.health import get_health_service
 from packages.db.session import close_db, init_db
 from packages.redis.client import close_redis, create_redis_pool
-from apps.api.services.health import get_health_service
 
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 
+class StructuredFormatter(logging.Formatter):
+    def format(self, record):
+        return f"{self.formatTime(record)} | {record.levelname:8} | {record.getMessage()}"
+
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(StructuredFormatter())
+
+root_logger = logging.getLogger("routing.run")
+root_logger.setLevel(logging.INFO)
+root_logger.handlers = []
+root_logger.addHandler(handler)
+
+for logger_name in ["routing.run.api", "routing.run.router", "routing.run.config"]:
+    log = logging.getLogger(logger_name)
+    log.setLevel(logging.INFO)
+    log.handlers = []
+    log.addHandler(handler)
+
+logger = root_logger
+
+
+def log_with_component(logger_method, msg, component):
+    logger_method(f"{msg} | component={component}")
+
+
+def create_logger_with_component(name):
+    log = logging.getLogger(name)
+    original_info = log.info
+    original_warning = log.warning
+    original_error = log.error
+
+    def info(msg, component=None):
+        if component:
+            original_info(f"{msg} | component={component}")
+        else:
+            original_info(msg)
+
+    def warning(msg, component=None):
+        if component:
+            original_warning(f"{msg} | component={component}")
+        else:
+            original_warning(msg)
+
+    def error(msg, component=None):
+        if component:
+            original_error(f"{msg} | component={component}")
+        else:
+            original_error(msg)
+
+    log.info = info
+    log.warning = warning
+    log.error = error
+    return log
+
+
+api_logger = create_logger_with_component("routing.run.api")
+router_logger = create_logger_with_component("routing.run.router")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    log_with_component(logger.info, "Starting Routing.Run API", "startup")
+
+    log_with_component(logger.info, "Initializing database connection", "database")
     try:
         await init_db()
-    except Exception:
-        pass
+        log_with_component(logger.info, "Database initialized successfully", "database")
+    except Exception as e:
+        log_with_component(logger.error, f"Database initialization failed: {e}", "database")
+
+    log_with_component(logger.info, "Creating Redis connection pool", "redis")
     try:
         await create_redis_pool()
-    except Exception:
-        pass
+        log_with_component(logger.info, "Redis connected successfully", "redis")
+    except Exception as e:
+        log_with_component(logger.error, f"Redis connection failed: {e}", "redis")
+
+    log_with_component(logger.info, "Loading provider configuration from remote", "config")
+    try:
+        provider_config = get_provider_config()
+        await provider_config.load_remote_config()
+        log_with_component(logger.info, "Provider config loaded from remote", "config")
+
+        plans = list(provider_config._plans_config.get("plans", {}).keys())
+        log_with_component(logger.info, f"Plans loaded: {plans}", "config")
+
+        providers = provider_config._config.get("providers", {}).get("providers", {})
+        log_with_component(logger.info, f"Providers loaded: {list(providers.keys())}", "providers")
+
+        models = provider_config._config.get("providers", {}).get("models", {})
+        for tier, tier_models in models.items():
+            if tier_models is None or not isinstance(tier_models, dict):
+                continue
+            log_with_component(
+                logger.info,
+                f"Tier [{tier}] has {len(tier_models)} models: {list(tier_models.keys())}",
+                "models",
+            )
+    except Exception as e:
+        log_with_component(logger.error, f"Provider config loading failed: {e}", "config")
+
+    log_with_component(logger.info, "Starting health service", "health")
     try:
         health_service = get_health_service()
         await health_service.start()
-    except Exception:
-        pass
+        log_with_component(logger.info, "Health service started", "health")
+    except Exception as e:
+        log_with_component(logger.error, f"Health service failed: {e}", "health")
+
+    log_with_component(logger.info, "API startup complete, ready to accept requests", "startup")
+
     yield
+
+    log_with_component(logger.info, "Shutting down Routing.Run API", "shutdown")
     try:
         health_service = get_health_service()
         await health_service.stop()
+        log_with_component(logger.info, "Health service stopped", "health")
     except Exception:
         pass
     try:
         await close_db()
+        log_with_component(logger.info, "Database connections closed", "database")
     except Exception:
         pass
     try:
         await close_redis()
+        log_with_component(logger.info, "Redis connections closed", "redis")
     except Exception:
         pass
+    log_with_component(logger.info, "Shutdown complete", "shutdown")
 
 
 def create_app() -> FastAPI:

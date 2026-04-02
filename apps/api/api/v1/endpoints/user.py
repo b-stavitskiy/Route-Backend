@@ -56,7 +56,7 @@ async def get_authenticated_user(request: Request) -> tuple[str, str]:
         raise RateLimitError("Authentication required")
 
     token = auth_header[7:]
-    payload = verify_access_token(token)
+    payload = await verify_access_token(token)
     user_id = payload.get("sub")
     plan = payload.get("plan", "free")
 

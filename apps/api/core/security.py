@@ -126,13 +126,13 @@ def decode_token(token: str) -> dict[str, Any]:
         raise AuthenticationError(f"Invalid token: {str(e)}")
 
 
-def verify_access_token(token: str) -> dict[str, Any]:
+async def verify_access_token(token: str) -> dict[str, Any]:
     payload = decode_token(token)
     if payload.get("type") != "access":
         raise AuthenticationError("Invalid token type")
 
     jti = payload.get("jti")
-    if jti and is_token_blacklisted(jti):
+    if jti and await is_token_blacklisted(jti):
         raise AuthenticationError("Token has been revoked")
 
     return payload

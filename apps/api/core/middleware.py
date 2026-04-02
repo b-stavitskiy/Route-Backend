@@ -48,6 +48,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/webhooks/whop",
             "/v1/models",
             "/v1/settings",
+            "/v1/status",
             "/docs",
             "/openapi.json",
             "/redoc",
@@ -57,6 +58,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization")
+        api_key = request.headers.get("X-API-Key", "")
+
+        if api_key:
+            return await call_next(request)
 
         if not auth_header or not auth_header.startswith("Bearer "):
             return JSONResponse(
@@ -66,7 +71,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         token = auth_header[7:]
         try:
-            payload = verify_access_token(token)
+            payload = await verify_access_token(token)
             request.state.user_id = payload.get("sub")
         except AuthenticationError:
             return JSONResponse(

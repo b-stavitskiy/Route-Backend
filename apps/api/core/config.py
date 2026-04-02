@@ -1,4 +1,5 @@
 import json
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -6,6 +7,8 @@ from typing import Any
 import yaml
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -192,17 +195,24 @@ class ProviderConfig:
 
         from packages.shared.config_puller import get_configs
 
+        logger.info(
+            f"Cloning config from: {settings.config_repo_url} (branch: {settings.config_branch})",
+            component="config",
+        )
         configs = await get_configs(
             use_remote=bool(settings.config_github_token),
             github_token=settings.config_github_token,
             repo_url=settings.config_repo_url,
             branch=settings.config_branch,
         )
+        logger.info("Config repository cloned successfully | component=config")
 
         if configs.get("provider.yaml"):
             self._config = {"providers": configs["provider.yaml"]}
+            logger.info("Provider config injected | component=config")
         if configs.get("plans.yaml"):
             self._plans_config = configs["plans.yaml"]
+            logger.info("Plans config injected | component=config")
 
         self._initialized = True
 

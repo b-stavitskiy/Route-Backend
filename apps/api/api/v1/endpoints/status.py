@@ -103,6 +103,7 @@ async def get_status():
     from apps.api.core.config import get_provider_config
 
     provider_config = get_provider_config()
+    provider_config._load_config()
     redis = await get_redis()
 
     providers = []

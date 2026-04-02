@@ -100,6 +100,7 @@ async def check_model_access(
     model: str,
 ) -> None:
     provider_config = get_provider_config()
+    provider_config._load_config()
 
     if not provider_config.is_model_allowed(model, user_plan):
         raise ModelNotAllowedError(model, user_plan)

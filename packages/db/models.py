@@ -133,8 +133,8 @@ class UsageLog(Base):
     __tablename__ = "usage_logs"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    api_key_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=False
+    api_key_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True
     )
     user_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=False

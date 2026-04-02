@@ -4,7 +4,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import git
 import yaml
 
 
@@ -14,6 +13,8 @@ async def pull_config_from_github(
     branch: str = "main",
     config_files: list[str] | None = None,
 ) -> dict[str, Any]:
+    import git
+
     if config_files is None:
         config_files = ["provider.yaml", "plans.yaml", "settings.yaml"]
 
@@ -56,6 +57,17 @@ def load_local_config(config_dir: str = "config") -> dict[str, Any]:
     return configs
 
 
+def find_route_configs_dir() -> Path | None:
+    current = Path(__file__).parent.parent.parent
+    for parent in [current] + list(current.parents):
+        route_configs = parent / "Route-Configs"
+        if route_configs.exists() and route_configs.is_dir():
+            provider_yaml = route_configs / "provider.yaml"
+            if provider_yaml.exists():
+                return route_configs
+    return None
+
+
 async def get_configs(
     use_remote: bool = True,
     github_token: str = "",
@@ -72,5 +84,9 @@ async def get_configs(
             )
         except Exception:
             pass
+
+    route_configs = find_route_configs_dir()
+    if route_configs:
+        return load_local_config(str(route_configs))
 
     return load_local_config(config_dir)

@@ -27,7 +27,7 @@ async def get_user_plan(request: Request) -> str:
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
         try:
-            payload = verify_access_token(token)
+            payload = await verify_access_token(token)
             return payload.get("plan", "free")
         except Exception:
             pass

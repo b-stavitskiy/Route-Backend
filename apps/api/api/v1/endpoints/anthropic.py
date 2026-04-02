@@ -1,6 +1,5 @@
-import json
+import logging
 import time
-from typing import Any
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -13,6 +12,7 @@ from packages.db.session import get_db_session
 from packages.redis.client import get_redis
 from packages.shared.exceptions import AuthenticationError
 
+logger = logging.getLogger("routing.run.api")
 router = APIRouter(prefix="/v1", tags=["anthropic"])
 
 
@@ -47,7 +47,7 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
         try:
-            payload = verify_access_token(token)
+            payload = await verify_access_token(token)
             user_id = payload.get("sub")
             plan = payload.get("plan", "free")
             api_key_id = ""
@@ -95,6 +95,11 @@ async def create_message(
 ):
     user_id, plan, api_key_id = await get_user_from_request(request)
 
+    logger.info(
+        f"Anthropic message request | user={user_id} | plan={plan} | model={body.model}",
+        component="anthropic",
+    )
+
     await check_model_access(plan, body.model)
 
     redis = await get_redis()
@@ -109,13 +114,17 @@ async def create_message(
             model=body.model,
             max_tokens=body.max_tokens,
         )
+        logger.info(f"Credit check passed | estimated_cost={estimated_cost} | component=credits")
     except Exception as e:
+        logger.error(f"Credit check failed: {e} | component=credits")
         raise e
 
     router_instance = LLMRouter(redis)
 
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
     messages = convert_to_openai_format(messages, body.system)
+
+    logger.info(f"Routing Anthropic request to model | model={body.model} | component=router")
 
     response = await router_instance.route_chat_complete(
         model=body.model,
@@ -128,26 +137,36 @@ async def create_message(
     )
 
     usage_tracker = UsageTracker(redis)
+    input_tokens = response.get("usage", {}).get("prompt_tokens", 0)
+    output_tokens = response.get("usage", {}).get("completion_tokens", 0)
     await usage_tracker.track_request(
         user_id=user_id,
         api_key_id=api_key_id,
         model=body.model,
         provider=response.get("provider", "unknown"),
-        input_tokens=response.get("usage", {}).get("prompt_tokens", 0),
-        output_tokens=response.get("usage", {}).get("completion_tokens", 0),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         latency_ms=response.get("latency_ms", 0),
     )
 
     actual_cost = await credit_manager.deduct_credits(
         user_id=user_id,
         model=body.model,
-        input_tokens=response.get("usage", {}).get("prompt_tokens", 0),
-        output_tokens=response.get("usage", {}).get("completion_tokens", 0),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
     input_tokens = response.get("usage", {}).get("prompt_tokens", 0)
     output_tokens = response.get("usage", {}).get("completion_tokens", 0)
     content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+    logger.info(
+        f"Anthropic request completed | model={body.model} | "
+        f"provider={response.get('provider')} | input_tokens={input_tokens} | "
+        f"output_tokens={output_tokens} | latency_ms={response.get('latency_ms')} | "
+        f"cost={actual_cost}",
+        component="anthropic",
+    )
 
     return {
         "id": f"msg_{int(time.time() * 1000)}",

@@ -1,5 +1,5 @@
+import logging
 import time
-from typing import Any
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -12,6 +12,7 @@ from packages.db.session import get_db_session
 from packages.redis.client import get_redis
 from packages.shared.exceptions import AuthenticationError
 
+logger = logging.getLogger("routing.run.api")
 router = APIRouter(prefix="/v1", tags=["images"])
 
 
@@ -43,7 +44,7 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
         try:
-            payload = verify_access_token(token)
+            payload = await verify_access_token(token)
             user_id = payload.get("sub")
             plan = payload.get("plan", "free")
             api_key_id = ""
@@ -82,6 +83,10 @@ async def generate_image(
 ):
     user_id, plan, api_key_id = await get_user_from_request(request)
 
+    logger.info(
+        f"Image request | user={user_id} | plan={plan} | model={body.model} | component=images"
+    )
+
     await check_model_access(plan, body.model)
 
     redis = await get_redis()
@@ -93,16 +98,19 @@ async def generate_image(
         "minimax_image": {"provider_chain": [{"provider": "minimax_image", "model_id": "image-01"}]}
     }
 
-    from apps.api.core.config import get_provider_config
-
     provider_chain = provider_config_data.get("minimax_image", {}).get("provider_chain", [])
 
     if not provider_chain:
+        logger.warning(f"No provider chain for image model={body.model} | component=images")
         return {"error": "Model not found"}
 
     provider_entry = provider_chain[0]
     provider_name = provider_entry["provider"]
     model_id = provider_entry.get("model_id", "image-01")
+
+    logger.info(
+        f"Calling image provider | provider={provider_name} | model={model_id} | component=images"
+    )
 
     provider = get_provider_for_model(provider_name, model_id)
 
@@ -130,6 +138,11 @@ async def generate_image(
             latency_ms=0,
         )
 
+        logger.info(
+            f"Image generated | user={user_id} | model={body.model} | "
+            f"provider={provider_name} | credits={actual_cost} | component=images"
+        )
+
         return ImageResponse(
             created=int(time.time()),
             data=[ImageResult(**img) for img in response.get("data", [])],
@@ -139,4 +152,7 @@ async def generate_image(
         )
 
     except Exception as e:
+        logger.error(
+            f"Image generation failed | user={user_id} | model={body.model} | error={e} | component=images"
+        )
         return {"error": {"message": str(e), "type": "api_error"}}
