@@ -8,9 +8,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY uv.lock pyproject.toml ./
-RUN pip install uv && uv sync --frozen
+RUN pip install uv && uv sync --frozen --no-install-project
 
 COPY . .
+
+RUN uv pip install gitpython
 
 ENV PATH="/app/.venv/bin:$PATH"
 
