@@ -50,6 +50,7 @@ class AuthService:
             password_hash=password_hash,
             name=name,
             plan_tier=PlanTier.FREE,
+            credits=5.0,
             **kwargs,
         )
 
@@ -106,6 +107,7 @@ class AuthService:
             name=name,
             avatar_url=avatar_url,
             plan_tier=PlanTier.FREE,
+            credits=5.0,
             email_verified=True,
             github_id=provider_user_id if provider == OAuthProvider.GITHUB else None,
         )
