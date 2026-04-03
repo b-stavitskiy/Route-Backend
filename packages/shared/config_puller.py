@@ -77,16 +77,23 @@ async def get_configs(
 ) -> dict[str, Any]:
     if use_remote and github_token:
         try:
-            return await pull_config_from_github(
+            configs = await pull_config_from_github(
                 github_token=github_token,
                 repo_url=repo_url,
                 branch=branch,
             )
-        except Exception:
-            pass
+            if configs:
+                return configs
+            print(
+                f"[config_puller] WARNING: Remote config returned empty dict, falling back to local"
+            )
+        except Exception as e:
+            print(f"[config_puller] ERROR pulling from github: {e}")
 
     route_configs = find_route_configs_dir()
     if route_configs:
+        print(f"[config_puller] Using local config from: {route_configs}")
         return load_local_config(str(route_configs))
 
+    print(f"[config_puller] WARNING: No config found, returning empty dict")
     return load_local_config(config_dir)
