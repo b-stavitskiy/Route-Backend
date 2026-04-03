@@ -11,7 +11,10 @@ _session_factory = None
 def get_database_url() -> str:
     from apps.api.core.config import get_settings
 
-    return get_settings().database_url
+    url = get_settings().database_url
+    if url and not url.startswith("postgresql+asyncpg://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://")
+    return url
 
 
 def create_engine(url: str | None = None, **kwargs):
