@@ -14,7 +14,9 @@ from apps.api.core.security import (
     verify_oauth_state,
     verify_refresh_token,
 )
+from apps.api.core.otp import generate_otp, store_otp, verify_otp
 from apps.api.services.auth_service import AuthService
+from apps.api.services.email.service import get_email_service
 from packages.db.session import get_db, get_db_session
 from packages.shared.exceptions import AuthenticationError, DuplicateResourceError
 
@@ -23,8 +25,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 ALLOWED_OAUTH_PROVIDERS = {"github"}
 
 
-class SignupRequest(BaseModel):
+class SignupInitRequest(BaseModel):
     email: EmailStr
+
+
+class SignupVerifyRequest(BaseModel):
+    email: EmailStr
+    otp: str
     password: str
     name: str | None = None
 
@@ -36,9 +43,14 @@ class SignupRequest(BaseModel):
         return v
 
 
-class LoginRequest(BaseModel):
+class LoginInitRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class LoginVerifyRequest(BaseModel):
+    email: EmailStr
+    otp: str
 
 
 class RefreshRequest(BaseModel):
@@ -69,11 +81,38 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
-@router.post("/signup", response_model=LoginResponse)
-async def signup(
-    request: SignupRequest,
+class MessageResponse(BaseModel):
+    message: str
+
+
+@router.post("/signup/init", response_model=MessageResponse)
+async def signup_init(
+    request: SignupInitRequest,
     db=Depends(get_db),
 ):
+    async with get_db_session() as session:
+        auth_service = AuthService(session)
+        existing = await auth_service.get_user_by_email(request.email)
+        if existing:
+            raise AuthenticationError("Email already registered")
+
+    otp = generate_otp()
+    await store_otp(request.email, otp, "signup")
+
+    email_service = get_email_service()
+    await email_service.send_otp(request.email, otp, "signup")
+
+    return MessageResponse(message="OTP sent to email")
+
+
+@router.post("/signup/verify", response_model=LoginResponse)
+async def signup_verify(
+    request: SignupVerifyRequest,
+    db=Depends(get_db),
+):
+    if not await verify_otp(request.email, request.otp, "signup"):
+        raise AuthenticationError("Invalid or expired OTP")
+
     async with get_db_session() as session:
         auth_service = AuthService(session)
 
@@ -92,6 +131,9 @@ async def signup(
         )
         refresh_token = create_refresh_token(subject=str(user.id))
 
+        email_service = get_email_service()
+        await email_service.send_welcome(user.email, user.name)
+
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -105,18 +147,39 @@ async def signup(
         )
 
 
-@router.post("/login", response_model=LoginResponse)
-async def login(
-    request: LoginRequest,
+@router.post("/login/init", response_model=MessageResponse)
+async def login_init(
+    request: LoginInitRequest,
     db=Depends(get_db),
 ):
     async with get_db_session() as session:
         auth_service = AuthService(session)
+        user = await auth_service.authenticate_user(request.email, request.password)
+        if not user:
+            raise AuthenticationError("Invalid email or password")
 
-        user = await auth_service.authenticate_user(
-            email=request.email,
-            password=request.password,
-        )
+    otp = generate_otp()
+    await store_otp(request.email, otp, "login")
+
+    email_service = get_email_service()
+    await email_service.send_otp(request.email, otp, "login")
+
+    return MessageResponse(message="OTP sent to email")
+
+
+@router.post("/login/verify", response_model=LoginResponse)
+async def login_verify(
+    request: LoginVerifyRequest,
+    db=Depends(get_db),
+):
+    if not await verify_otp(request.email, request.otp, "login"):
+        raise AuthenticationError("Invalid or expired OTP")
+
+    async with get_db_session() as session:
+        auth_service = AuthService(session)
+        user = await auth_service.get_user_by_email(request.email)
+        if not user:
+            raise AuthenticationError("User not found")
 
         access_token = create_access_token(
             subject=str(user.id),
@@ -135,6 +198,120 @@ async def login(
                 email_verified=user.email_verified,
             ),
         )
+
+
+@router.post("/signup", response_model=LoginResponse)
+async def signup(
+    request: SignupVerifyRequest,
+    db=Depends(get_db),
+):
+    if not await verify_otp(request.email, request.otp, "signup"):
+        raise AuthenticationError("Invalid or expired OTP")
+
+    async with get_db_session() as session:
+        auth_service = AuthService(session)
+
+        try:
+            user = await auth_service.create_user(
+                email=request.email,
+                password=request.password,
+                name=request.name,
+            )
+        except DuplicateResourceError:
+            raise AuthenticationError("Email already registered")
+
+        access_token = create_access_token(
+            subject=str(user.id),
+            additional_claims={"plan": user.plan_tier.value},
+        )
+        refresh_token = create_refresh_token(subject=str(user.id))
+
+        email_service = get_email_service()
+        await email_service.send_welcome(user.email, user.name)
+
+        return LoginResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=UserResponse(
+                id=str(user.id),
+                email=user.email,
+                name=user.name,
+                plan_tier=user.plan_tier.value,
+                email_verified=user.email_verified,
+            ),
+        )
+
+
+@router.post("/login", response_model=LoginResponse)
+async def login(
+    request: LoginVerifyRequest,
+    db=Depends(get_db),
+):
+    if not await verify_otp(request.email, request.otp, "login"):
+        raise AuthenticationError("Invalid or expired OTP")
+
+    async with get_db_session() as session:
+        auth_service = AuthService(session)
+        user = await auth_service.get_user_by_email(request.email)
+        if not user:
+            raise AuthenticationError("User not found")
+
+        access_token = create_access_token(
+            subject=str(user.id),
+            additional_claims={"plan": user.plan_tier.value},
+        )
+        refresh_token = create_refresh_token(subject=str(user.id))
+
+        return LoginResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=UserResponse(
+                id=str(user.id),
+                email=user.email,
+                name=user.name,
+                plan_tier=user.plan_tier.value,
+                email_verified=user.email_verified,
+            ),
+        )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    request: RefreshRequest,
+):
+    payload = verify_refresh_token(request.refresh_token)
+    user_id = payload.get("sub")
+    jti = payload.get("jti")
+
+    if not user_id:
+        raise AuthenticationError("Invalid refresh token")
+
+    if jti and await is_refresh_token_used(jti):
+        await blacklist_refresh_token(jti, user_id)
+        raise AuthenticationError("Refresh token reuse detected")
+
+    if jti:
+        await blacklist_refresh_token(jti, user_id)
+
+    access_token = create_access_token(subject=user_id)
+    new_refresh_token = create_refresh_token(subject=user_id)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=new_refresh_token,
+    )
+
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    authorization: str = Header(None),
+):
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        await blacklist_token(token)
+
+    return {"message": "Logged out"}
 
 
 @router.get("/oauth/{provider}")
@@ -218,72 +395,23 @@ async def oauth_callback(
         )
 
 
-@router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(
-    request: RefreshRequest,
-):
-    payload = verify_refresh_token(request.refresh_token)
-    user_id = payload.get("sub")
-    jti = payload.get("jti")
-
-    if not user_id:
-        raise AuthenticationError("Invalid refresh token")
-
-    if jti and await is_refresh_token_used(jti):
-        await blacklist_refresh_token(jti, user_id)
-        raise AuthenticationError("Refresh token reuse detected")
-
-    if jti:
-        await blacklist_refresh_token(jti, user_id)
-
-    access_token = create_access_token(subject=user_id)
-    new_refresh_token = create_refresh_token(subject=user_id)
-
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=new_refresh_token,
-    )
-
-
-@router.post("/logout")
-async def logout(
-    request: Request,
-    authorization: str = Header(None),
-):
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization[7:]
-        try:
-            payload = decode_token(token)
-            jti = payload.get("jti")
-            exp = payload.get("exp")
-            if jti and exp:
-                exp_timestamp = datetime.fromtimestamp(exp)
-                ttl = int((exp_timestamp - datetime.now(UTC)).total_seconds())
-                if ttl > 0:
-                    await blacklist_token(jti, ttl)
-        except Exception:
-            pass
-
-    return {"message": "Logged out successfully"}
-
-
-from datetime import UTC
-
-
 @router.get("/me", response_model=UserResponse)
-async def get_current_user(
+async def get_me(
     request: Request,
-    db=Depends(get_db),
 ):
-    user_id = getattr(request.state, "user_id", None)
+    from apps.api.core.security import verify_access_token
 
-    if not user_id:
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
         raise AuthenticationError("Not authenticated")
+
+    token = auth_header[7:]
+    payload = decode_token(token)
+    user_id = payload.get("sub")
 
     async with get_db_session() as session:
         auth_service = AuthService(session)
         user = await auth_service.get_user_by_id(user_id)
-
         if not user:
             raise AuthenticationError("User not found")
 
