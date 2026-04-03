@@ -91,7 +91,13 @@ class AuthService:
         if existing_by_email:
             if provider == OAuthProvider.GITHUB and not existing_by_email.github_id:
                 existing_by_email.github_id = provider_user_id
+                if avatar_url:
+                    existing_by_email.avatar_url = avatar_url
+                if name:
+                    existing_by_email.name = name
                 await self.session.flush()
+                return existing_by_email
+            elif existing_by_email.github_id == provider_user_id:
                 return existing_by_email
             raise DuplicateResourceError("User", email)
 
