@@ -8,10 +8,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY uv.lock pyproject.toml ./
-RUN pip install uv && uv sync --frozen --no-install-project
+RUN pip install uv && uv sync --frozen
 
 COPY . .
 
+ENV PATH="/app/.venv/bin:$PATH"
+
 EXPOSE 4000
 
-CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "4000"]
+CMD ["python", "-m", "uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "4000"]
