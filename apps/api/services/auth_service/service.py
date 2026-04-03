@@ -109,14 +109,12 @@ class AuthService:
         return user
 
     async def verify_github_oauth(self, code: str) -> dict[str, Any]:
-        settings = self.settings.oauth
-
         async with httpx.AsyncClient() as client:
             token_response = await client.post(
                 "https://github.com/login/oauth/access_token",
                 data={
-                    "client_id": settings.github_client_id,
-                    "client_secret": settings.github_client_secret,
+                    "client_id": self.settings.github_client_id,
+                    "client_secret": self.settings.github_client_secret,
                     "code": code,
                 },
                 headers={"Accept": "application/json"},
