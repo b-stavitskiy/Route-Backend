@@ -71,7 +71,7 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
         async with get_db_session() as session:
             from sqlalchemy import select
 
-            from packages.db.models import ApiKey
+            from packages.db.models import ApiKey, User
 
             key_hash = hash_api_key(api_key)
             result = await session.execute(
@@ -83,7 +83,12 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
             api_key_obj = result.scalar_one_or_none()
 
             if api_key_obj:
-                return str(api_key_obj.user_id), api_key_obj.plan_tier.value, str(api_key_obj.id)
+                user_result = await session.execute(
+                    select(User).where(User.id == api_key_obj.user_id)
+                )
+                user = user_result.scalar_one_or_none()
+                current_plan = user.plan_tier.value if user else api_key_obj.plan_tier.value
+                return str(api_key_obj.user_id), current_plan, str(api_key_obj.id)
             else:
                 raise AuthenticationError("Invalid API key")
 
@@ -269,6 +274,10 @@ async def chat_completions(
     )
 
     from uuid import UUID, uuid4
+    import hashlib
+
+    request_id = response.get("id", str(uuid4()))
+    request_hash = hashlib.sha256(f"{user_id}:{request_id}".encode()).hexdigest()[:16]
 
     async with get_db_session() as session:
         usage_log = UsageLog(
@@ -283,6 +292,8 @@ async def chat_completions(
             cost_usd=actual_cost,
             latency_ms=response.get("latency_ms", 0),
             status="success",
+            request_id=request_id,
+            request_hash=request_hash,
         )
         session.add(usage_log)
         await session.commit()
