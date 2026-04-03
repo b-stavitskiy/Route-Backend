@@ -140,12 +140,17 @@ async def login(
 async def oauth_redirect(
     provider: str,
 ):
+    import logging
+
+    logger = logging.getLogger("routing.run.api")
+
     if provider not in ALLOWED_OAUTH_PROVIDERS:
         raise AuthenticationError(f"Unknown OAuth provider: {provider}")
 
     settings = get_settings()
     state = generate_state_token()
     await store_oauth_state(state)
+    logger.info(f"OAuth redirect generated | state={state[:20]}... | component=oauth")
 
     if provider == "github":
         github_auth_url = (
@@ -167,10 +172,18 @@ async def oauth_callback(
     state: str = Query(...),
     db=Depends(get_db),
 ):
+    import logging
+
+    logger = logging.getLogger("routing.run.api")
+    logger.info(
+        f"OAuth callback received | provider={provider} | state={state[:20]}... | component=oauth"
+    )
+
     if provider not in ALLOWED_OAUTH_PROVIDERS:
         raise AuthenticationError(f"Unknown OAuth provider: {provider}")
 
-    stored_state = await store_oauth_state(state)
+    stored_state = await verify_oauth_state(state)
+    logger.info(f"OAuth state verification | found={stored_state is not None} | component=oauth")
     if stored_state is None:
         raise AuthenticationError("Invalid or expired OAuth state")
 
