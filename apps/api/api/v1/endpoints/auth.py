@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta, UTC
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, field_validator
+from uuid import UUID, uuid4
 from apps.api.core.config import get_settings
 from apps.api.core.security import (
     blacklist_token,
@@ -9,6 +11,7 @@ from apps.api.core.security import (
     create_refresh_token,
     decode_token,
     generate_state_token,
+    hash_api_key,
     is_refresh_token_used,
     store_oauth_state,
     verify_oauth_state,
@@ -17,8 +20,36 @@ from apps.api.core.security import (
 from apps.api.core.otp import generate_otp, store_otp, verify_otp
 from apps.api.services.auth_service import AuthService
 from apps.api.services.email.service import get_email_service
+from packages.db.models import Session
 from packages.db.session import get_db, get_db_session
 from packages.shared.exceptions import AuthenticationError, DuplicateResourceError
+
+
+async def create_session(
+    user_id: UUID,
+    refresh_token: str,
+    user_agent: str | None = None,
+    ip_address: str | None = None,
+) -> Session:
+    settings = get_settings()
+    refresh_token_hash = hash_api_key(refresh_token)
+    expires_at = datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days)
+
+    session = Session(
+        id=uuid4(),
+        user_id=user_id,
+        refresh_token_hash=refresh_token_hash,
+        user_agent=user_agent,
+        ip_address=ip_address,
+        expires_at=expires_at,
+    )
+
+    async with get_db_session() as db_session:
+        db_session.add(session)
+        await db_session.commit()
+
+    return session
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -130,6 +161,7 @@ async def signup_verify(
             additional_claims={"plan": user.plan_tier.value},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
+        await create_session(user.id, refresh_token)
 
         email_service = get_email_service()
         await email_service.send_welcome(user.email, user.name)
@@ -186,6 +218,7 @@ async def login_verify(
             additional_claims={"plan": user.plan_tier.value},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
+        await create_session(user.id, refresh_token)
 
         return LoginResponse(
             access_token=access_token,
@@ -261,6 +294,7 @@ async def login(
             additional_claims={"plan": user.plan_tier.value},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
+        await create_session(user.id, refresh_token)
 
         return LoginResponse(
             access_token=access_token,
@@ -295,6 +329,7 @@ async def refresh_token(
 
     access_token = create_access_token(subject=user_id)
     new_refresh_token = create_refresh_token(subject=user_id)
+    await create_session(UUID(user_id), new_refresh_token)
 
     return TokenResponse(
         access_token=access_token,
@@ -388,6 +423,7 @@ async def oauth_callback(
             additional_claims={"plan": user.plan_tier.value},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
+        await create_session(user.id, refresh_token)
 
         return TokenResponse(
             access_token=access_token,

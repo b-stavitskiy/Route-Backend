@@ -196,8 +196,7 @@ class ProviderConfig:
         from packages.shared.config_puller import get_configs
 
         logger.info(
-            f"Cloning config from: {settings.config_repo_url} (branch: {settings.config_branch})",
-            component="config",
+            f"Cloning config from: {settings.config_repo_url} (branch: {settings.config_branch})"
         )
         configs = await get_configs(
             use_remote=bool(settings.config_github_token),

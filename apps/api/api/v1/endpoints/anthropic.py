@@ -95,10 +95,7 @@ async def create_message(
 ):
     user_id, plan, api_key_id = await get_user_from_request(request)
 
-    logger.info(
-        f"Anthropic message request | user={user_id} | plan={plan} | model={body.model}",
-        component="anthropic",
-    )
+    logger.info(f"Anthropic message request | user={user_id} | plan={plan} | model={body.model}")
 
     await check_model_access(plan, body.model)
 
@@ -164,8 +161,7 @@ async def create_message(
         f"Anthropic request completed | model={body.model} | "
         f"provider={response.get('provider')} | input_tokens={input_tokens} | "
         f"output_tokens={output_tokens} | latency_ms={response.get('latency_ms')} | "
-        f"cost={actual_cost}",
-        component="anthropic",
+        f"cost={actual_cost}"
     )
 
     return {

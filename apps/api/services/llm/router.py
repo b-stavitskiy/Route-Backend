@@ -132,9 +132,7 @@ class LLMRouter:
 
         provider_chain = self.provider_config.get_provider_chain(model, user_plan)
         if not provider_chain:
-            logger.warning(
-                f"No provider chain found for model={model} plan={user_plan}", component="router"
-            )
+            logger.warning(f"No provider chain found for model={model} plan={user_plan}")
             raise InvalidModelError(model)
 
         routing_config = self.provider_config.get_routing_config()
@@ -143,7 +141,6 @@ class LLMRouter:
         logger.info(
             f"Routing chat request | model={model} | plan={user_plan} | request_id={request_id} | "
             f"providers={len(provider_chain)} | max_retries={retry_count}",
-            component="router",
         )
 
         last_error: Exception | None = None
@@ -156,7 +153,6 @@ class LLMRouter:
                 if self.circuit_breaker.is_open(provider_name):
                     logger.debug(
                         f"Circuit breaker open, skipping provider={provider_name}",
-                        component="router",
                     )
                     continue
 
@@ -166,7 +162,6 @@ class LLMRouter:
                     logger.info(
                         f"Calling provider | provider={provider_name} | "
                         f"model={model_id} | attempt={attempt + 1}",
-                        component="router",
                     )
 
                     start_time = time.time()
@@ -191,7 +186,6 @@ class LLMRouter:
                     logger.info(
                         f"Provider response success | provider={provider_name} | "
                         f"model={model_id} | latency_ms={latency_ms}",
-                        component="router",
                     )
 
                     return sanitize_response(response)
@@ -203,7 +197,6 @@ class LLMRouter:
                     logger.warning(
                         f"Provider timeout | provider={provider_name} | "
                         f"model={model_id} | error={e}",
-                        component="router",
                     )
                     continue
 
@@ -213,7 +206,6 @@ class LLMRouter:
                     await self._update_provider_health(provider_name, 0, True)
                     logger.warning(
                         f"Provider error | provider={provider_name} | model={model_id} | error={e}",
-                        component="router",
                     )
                     continue
 
@@ -223,7 +215,6 @@ class LLMRouter:
                     logger.error(
                         f"Unexpected error | provider={provider_name} | "
                         f"model={model_id} | error={e}",
-                        component="router",
                     )
                     continue
 
@@ -231,13 +222,11 @@ class LLMRouter:
                 delay_ms = routing_config.get("retry_delay_ms", 200)
                 logger.info(
                     f"Retrying request | attempt={attempt + 1} | delay_ms={delay_ms}",
-                    component="router",
                 )
                 await asyncio.sleep(delay_ms / 1000)
 
         logger.error(
             f"All providers failed | model={model} | last_error={last_error}",
-            component="router",
         )
 
         if last_error:
@@ -261,9 +250,7 @@ class LLMRouter:
 
         provider_chain = self.provider_config.get_provider_chain(model, user_plan)
         if not provider_chain:
-            logger.warning(
-                f"No provider chain found for model={model} plan={user_plan}", component="router"
-            )
+            logger.warning(f"No provider chain found for model={model} plan={user_plan}")
             raise InvalidModelError(model)
 
         routing_config = self.provider_config.get_routing_config()
@@ -273,7 +260,6 @@ class LLMRouter:
             f"Routing stream request | model={model} | plan={user_plan} | "
             f"request_id={request_id} | providers={len(provider_chain)} | "
             f"max_retries={retry_count}",
-            component="router",
         )
 
         last_error: Exception | None = None
@@ -286,7 +272,6 @@ class LLMRouter:
                 if self.circuit_breaker.is_open(provider_name):
                     logger.debug(
                         f"Circuit breaker open, skipping provider={provider_name}",
-                        component="router",
                     )
                     continue
 
@@ -296,7 +281,6 @@ class LLMRouter:
                     logger.info(
                         f"Calling stream provider | provider={provider_name} | "
                         f"model={model_id} | attempt={attempt + 1}",
-                        component="router",
                     )
 
                     start_time = time.time()
@@ -318,7 +302,6 @@ class LLMRouter:
                             logger.info(
                                 f"Stream started | provider={provider_name} | "
                                 f"model={model_id} | first_chunk_latency_ms={latency_ms}",
-                                component="router",
                             )
 
                         chunk["request_id"] = request_id
@@ -327,7 +310,6 @@ class LLMRouter:
 
                     logger.info(
                         f"Stream completed | provider={provider_name} | model={model_id}",
-                        component="router",
                     )
                     return
 
@@ -338,7 +320,6 @@ class LLMRouter:
                     logger.warning(
                         f"Stream provider timeout | provider={provider_name} | "
                         f"model={model_id} | error={e}",
-                        component="router",
                     )
                     continue
 
@@ -349,7 +330,6 @@ class LLMRouter:
                     logger.warning(
                         f"Stream provider error | provider={provider_name} | "
                         f"model={model_id} | error={e}",
-                        component="router",
                     )
                     continue
 
@@ -359,7 +339,6 @@ class LLMRouter:
                     logger.error(
                         f"Stream unexpected error | provider={provider_name} | "
                         f"model={model_id} | error={e}",
-                        component="router",
                     )
                     continue
 
@@ -367,13 +346,11 @@ class LLMRouter:
                 delay_ms = routing_config.get("retry_delay_ms", 200)
                 logger.info(
                     f"Retrying stream request | attempt={attempt + 1} | delay_ms={delay_ms}",
-                    component="router",
                 )
                 await asyncio.sleep(delay_ms / 1000)
 
         logger.error(
             f"All stream providers failed | model={model} | last_error={last_error}",
-            component="router",
         )
 
         if last_error:
