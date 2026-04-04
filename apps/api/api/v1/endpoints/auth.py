@@ -22,7 +22,8 @@ from apps.api.services.auth_service import AuthService
 from apps.api.services.email.service import get_email_service
 from packages.db.models import Session
 from packages.db.session import get_db, get_db_session
-from packages.shared.exceptions import AuthenticationError, DuplicateResourceError
+from packages.redis import RateLimiter, get_redis
+from packages.shared.exceptions import AuthenticationError, DuplicateResourceError, RateLimitError
 
 
 async def create_session(
@@ -49,6 +50,22 @@ async def create_session(
         await db_session.commit()
 
     return session
+
+
+async def check_otp_rate_limit(email: str, purpose: str) -> None:
+    redis = await get_redis()
+    limiter = RateLimiter(redis)
+    key = f"otp_rate:{purpose}:{email}"
+    allowed, remaining, retry_after = await limiter.check_rate_limit(
+        key=key,
+        limit=5,
+        window_seconds=60,
+    )
+    if not allowed:
+        raise RateLimitError(
+            message=f"Too many OTP requests. Please wait {retry_after} seconds before trying again.",
+            retry_after=retry_after,
+        )
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -121,6 +138,8 @@ async def signup_init(
     request: SignupInitRequest,
     db=Depends(get_db),
 ):
+    await check_otp_rate_limit(request.email, "signup")
+
     async with get_db_session() as session:
         auth_service = AuthService(session)
         existing = await auth_service.get_user_by_email(request.email)
@@ -184,6 +203,8 @@ async def login_init(
     request: LoginInitRequest,
     db=Depends(get_db),
 ):
+    await check_otp_rate_limit(request.email, "login")
+
     async with get_db_session() as session:
         auth_service = AuthService(session)
         user = await auth_service.authenticate_user(request.email, request.password)
