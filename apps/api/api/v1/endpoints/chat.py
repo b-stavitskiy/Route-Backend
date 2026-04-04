@@ -104,10 +104,12 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
 async def stream_generator(
     router_instance: LLMRouter,
     credit_manager: CreditManager,
+    usage_tracker: UsageTracker,
     model: str,
     messages: list[dict[str, Any]],
     user_plan: str,
     user_id: str,
+    api_key_id: str,
     temperature: float,
     max_tokens: int | None,
     tools: list[dict] | None = None,
@@ -115,6 +117,11 @@ async def stream_generator(
     **kwargs,
 ) -> AsyncGenerator[bytes, None]:
     request_id = f"chatcmpl-{int(time.time() * 1000)}"
+    input_tokens = 0
+    output_tokens = 0
+    provider = "unknown"
+    latency_ms = 0
+    start_time = time.time()
 
     yield b"event: ping\n\n"
 
@@ -145,6 +152,14 @@ async def stream_generator(
                     yield f"data: {error_payload}\n\n".encode()
                     break
 
+                if "usage" in data:
+                    usage = data.get("usage", {})
+                    input_tokens = usage.get("prompt_tokens", 0)
+                    output_tokens = usage.get("completion_tokens", 0)
+
+                if "provider" in data:
+                    provider = data.get("provider", "unknown")
+
                 delta = data.get("delta", data.get("content", ""))
                 if delta:
                     chunk_data = {
@@ -165,6 +180,7 @@ async def stream_generator(
                 yield f"data: {data}\n\n".encode()
 
         yield b"data: [DONE]\n\n"
+        latency_ms = int((time.time() - start_time) * 1000)
 
     except Exception as e:
         error_data = {
@@ -175,6 +191,58 @@ async def stream_generator(
             }
         }
         yield f"data: {json.dumps(error_data)}\n\n".encode()
+
+    total_tokens = input_tokens + output_tokens
+    if total_tokens > 0:
+        try:
+            actual_cost = await credit_manager.deduct_credits(
+                user_id=user_id,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+
+            await usage_tracker.track_request(
+                user_id=user_id,
+                api_key_id=api_key_id,
+                model=model,
+                provider=provider,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                latency_ms=latency_ms,
+            )
+
+            from uuid import UUID, uuid4
+            import hashlib
+
+            request_hash = hashlib.sha256(f"{user_id}:{request_id}".encode()).hexdigest()[:16]
+
+            async with get_db_session() as session:
+                usage_log = UsageLog(
+                    id=uuid4(),
+                    api_key_id=UUID(api_key_id) if api_key_id and api_key_id != "" else None,
+                    user_id=UUID(user_id),
+                    model=model,
+                    provider=provider,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens,
+                    cost_usd=actual_cost,
+                    latency_ms=latency_ms,
+                    status="success",
+                    request_id=request_id,
+                    request_hash=request_hash,
+                )
+                session.add(usage_log)
+                await session.commit()
+
+            logger.info(
+                f"Stream completed | model={model} | provider={provider} | "
+                f"input_tokens={input_tokens} | output_tokens={output_tokens} | "
+                f"latency_ms={latency_ms} | cost={actual_cost} | component=chat"
+            )
+        except Exception as e:
+            logger.error(f"Failed to track stream usage: {e} | component=chat")
 
 
 @router.post("/chat/completions")
@@ -219,14 +287,17 @@ async def chat_completions(
     )
 
     if body.stream:
+        usage_tracker = UsageTracker(redis)
         return StreamingResponse(
             stream_generator(
                 router_instance=router_instance,
                 credit_manager=credit_manager,
+                usage_tracker=usage_tracker,
                 model=body.model,
                 messages=messages,
                 user_plan=plan,
                 user_id=user_id,
+                api_key_id=api_key_id,
                 temperature=body.temperature,
                 max_tokens=body.max_tokens,
                 top_p=body.top_p,

@@ -84,13 +84,16 @@ async def handle_membership_activated(
     email = attributes.get("email")
     user_id = attributes.get("user_id")
     plan_id = attributes.get("plan_id")
+    steaml = attributes.get("steaml", False)
 
     if not email and not user_id:
         logger.warning("membership.activated: missing email and user_id")
         return
 
     plan_tier = get_plan_tier_from_whop(plan_id)
-    logger.info(f"membership.activated: email={email}, user_id={user_id}, plan={plan_tier}")
+    logger.info(
+        f"membership.activated: email={email}, user_id={user_id}, plan={plan_tier}, steaml={steaml}"
+    )
 
     if email:
         user = await auth_service.get_user_by_email(email)
@@ -98,7 +101,7 @@ async def handle_membership_activated(
             user.whop_user_id = user_id
             user.plan_tier = plan_tier
             await session.commit()
-            logger.info(f"Updated user {user.id} to plan {plan_tier}")
+            logger.info(f"Updated user {user.id} to plan {plan_tier} (steaml={steaml})")
             return
 
     if user_id:
@@ -110,7 +113,9 @@ async def handle_membership_activated(
             if user:
                 user.plan_tier = plan_tier
                 await new_session.commit()
-                logger.info(f"Updated user {user.id} by whop_user_id to plan {plan_tier}")
+                logger.info(
+                    f"Updated user {user.id} by whop_user_id to plan {plan_tier} (steaml={steaml})"
+                )
 
 
 async def handle_membership_deactivated(
