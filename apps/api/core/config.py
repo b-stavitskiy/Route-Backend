@@ -60,8 +60,9 @@ class Settings(BaseSettings):
     oauth_redirect_uri: str = ""
 
     # Email
-    email_provider: str = "unosend"
-    unosend_api_key: str = ""
+    email_provider: str = "resend"
+    resend_api_key: str = ""
+    resend_from_email: str = ""
     from_email: str = ""
     from_name: str = ""
 

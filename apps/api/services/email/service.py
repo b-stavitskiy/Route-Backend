@@ -5,14 +5,14 @@ from apps.api.core.config import get_settings
 class EmailService:
     def __init__(self):
         self.settings = get_settings()
-        self.api_key = self.settings.unosend_api_key
-        self.from_email = self.settings.from_email
+        self.api_key = self.settings.resend_api_key
+        self.from_email = self.settings.resend_from_email or self.settings.from_email
         self.from_name = self.settings.from_name
 
     async def send_email(self, to: list[str], subject: str, html: str) -> dict:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                "https://api.unosend.co/emails",
+                "https://api.resend.com/emails",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
@@ -58,7 +58,7 @@ class EmailService:
                     <p>If you didn't request this, please ignore this email.</p>
                 </div>
                 <div class="footer">
-                    <p>© 2026 Routing.Run - AI Model Routing Platform</p>
+                    <p>&copy; 2026 Routing.Run - AI Model Routing Platform</p>
                 </div>
             </div>
         </body>
@@ -97,7 +97,7 @@ class EmailService:
                     <a href="https://app.routing.run/dashboard/keys" class="btn">Create API Key</a>
                 </div>
                 <div class="footer">
-                    <p>© 2026 Routing.Run - AI Model Routing Platform</p>
+                    <p>&copy; 2026 Routing.Run - AI Model Routing Platform</p>
                 </div>
             </div>
         </body>
@@ -136,7 +136,7 @@ class EmailService:
                     <p>If this wasn't you, please secure your account immediately.</p>
                 </div>
                 <div class="footer">
-                    <p>© 2026 Routing.Run - AI Model Routing Platform</p>
+                    <p>&copy; 2026 Routing.Run - AI Model Routing Platform</p>
                 </div>
             </div>
         </body>
@@ -182,7 +182,7 @@ class EmailService:
                     <p>If you didn't make this change, please contact support immediately.</p>
                 </div>
                 <div class="footer">
-                    <p>© 2026 Routing.Run - AI Model Routing Platform</p>
+                    <p>&copy; 2026 Routing.Run - AI Model Routing Platform</p>
                 </div>
             </div>
         </body>
@@ -214,14 +214,14 @@ class EmailService:
                     <p>Your Routing.Run plan has been upgraded:</p>
                     <p style="text-align: center; margin: 30px 0;">
                         <span class="plan-badge">{old_plan.upper()}</span>
-                        →
+                        &rarr;
                         <span class="plan-badge">{new_plan.upper()}</span>
                     </p>
                     <p>You now have access to more models and higher rate limits.</p>
                     <p>Check your new benefits in the dashboard.</p>
                 </div>
                 <div class="footer">
-                    <p>© 2026 Routing.Run - AI Model Routing Platform</p>
+                    <p>&copy; 2026 Routing.Run - AI Model Routing Platform</p>
                 </div>
             </div>
         </body>
