@@ -22,9 +22,15 @@ logger = logging.getLogger("routing.run.api")
 router = APIRouter(prefix="/v1", tags=["chat"])
 
 
+class MessageContent(BaseModel):
+    type: str
+    text: str | None = None
+    image_url: dict | None = None
+
+
 class Message(BaseModel):
     role: str
-    content: str
+    content: str | list[MessageContent]
 
 
 class Tool(BaseModel):
