@@ -31,6 +31,7 @@ async def create_session(
     refresh_token: str,
     user_agent: str | None = None,
     ip_address: str | None = None,
+    db_session=None,
 ) -> Session:
     settings = get_settings()
     refresh_token_hash = hash_api_key(refresh_token)
@@ -45,9 +46,13 @@ async def create_session(
         expires_at=expires_at,
     )
 
-    async with get_db_session() as db_session:
+    if db_session:
         db_session.add(session)
         await db_session.commit()
+    else:
+        async with get_db_session() as new_session:
+            new_session.add(session)
+            await new_session.commit()
 
     return session
 
@@ -180,7 +185,7 @@ async def signup_verify(
             additional_claims={"plan": user.plan_tier.value},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
-        await create_session(user.id, refresh_token)
+        await create_session(user.id, refresh_token, db_session=session)
 
         email_service = get_email_service()
         await email_service.send_welcome(user.email, user.name)
@@ -239,7 +244,7 @@ async def login_verify(
             additional_claims={"plan": user.plan_tier.value},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
-        await create_session(user.id, refresh_token)
+        await create_session(user.id, refresh_token, db_session=session)
 
         return LoginResponse(
             access_token=access_token,
@@ -315,7 +320,7 @@ async def login(
             additional_claims={"plan": user.plan_tier.value},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
-        await create_session(user.id, refresh_token)
+        await create_session(user.id, refresh_token, db_session=session)
 
         return LoginResponse(
             access_token=access_token,
@@ -444,7 +449,7 @@ async def oauth_callback(
             additional_claims={"plan": user.plan_tier.value},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
-        await create_session(user.id, refresh_token)
+        await create_session(user.id, refresh_token, db_session=session)
 
         return TokenResponse(
             access_token=access_token,
