@@ -9,6 +9,7 @@ from apps.api.api.v1.endpoints import (
     status,
     user,
     webhooks,
+    whop,
 )
 
 router = APIRouter()
@@ -22,3 +23,4 @@ router.include_router(pricing.router)
 router.include_router(status.router)
 router.include_router(user.router)
 router.include_router(webhooks.router)
+router.include_router(whop.router)

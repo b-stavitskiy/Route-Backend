@@ -67,10 +67,15 @@ class Settings(BaseSettings):
     from_name: str = ""
 
     # Whop
+    whop_api_key: str = ""
+    whop_app_id: str = ""
     whop_client_id: str = ""
     whop_client_secret: str = ""
     whop_webhook_secret: str = ""
     whop_api_base_url: str = "https://api.whop.com"
+    whop_lite_product_id: str = ""
+    whop_premium_product_id: str = ""
+    whop_max_product_id: str = ""
 
     # Worker
     worker_concurrency: int = 4
@@ -124,6 +129,22 @@ class Settings(BaseSettings):
         )
 
     @property
+    def whop(self):
+        from apps.api.core.config import WhopSettings
+
+        return WhopSettings(
+            api_key=self.whop_api_key,
+            app_id=self.whop_app_id,
+            client_id=self.whop_client_id,
+            client_secret=self.whop_client_secret,
+            webhook_secret=self.whop_webhook_secret,
+            api_base_url=self.whop_api_base_url,
+            lite_product_id=self.whop_lite_product_id,
+            premium_product_id=self.whop_premium_product_id,
+            max_product_id=self.whop_max_product_id,
+        )
+
+    @property
     def cors_origins_list(self) -> list[str]:
         if not self.cors_origins:
             return []
@@ -150,6 +171,18 @@ class RedisSettings(BaseSettings):
 class JWTSettings(BaseSettings):
     secret_key: str
     algorithm: str = "HS256"
+
+
+class WhopSettings(BaseSettings):
+    api_key: str = ""
+    app_id: str = ""
+    client_id: str = ""
+    client_secret: str = ""
+    webhook_secret: str = ""
+    api_base_url: str = "https://api.whop.com"
+    lite_product_id: str = ""
+    premium_product_id: str = ""
+    max_product_id: str = ""
 
 
 def load_yaml_config(config_path: str) -> dict[str, Any]:

@@ -169,13 +169,11 @@ async def handle_membership_deleted(
 def get_plan_tier_from_whop(plan_id: str) -> PlanTier:
     settings = get_settings()
 
-    if plan_id == settings.whop.client_id:
-        return PlanTier.FREE
-    if plan_id == getattr(settings.whop, "lite_product_id", ""):
+    if plan_id == settings.whop.lite_product_id:
         return PlanTier.LITE
-    if plan_id == getattr(settings.whop, "premium_product_id", ""):
+    if plan_id == settings.whop.premium_product_id:
         return PlanTier.PREMIUM
-    if plan_id == getattr(settings.whop, "max_product_id", ""):
+    if plan_id == settings.whop.max_product_id:
         return PlanTier.MAX
 
     return PlanTier.FREE
