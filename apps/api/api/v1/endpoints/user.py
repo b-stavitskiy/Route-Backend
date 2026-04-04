@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from apps.api.core.security import (
     generate_api_key,
     verify_access_token,
+    hash_password,
 )
 from apps.api.services.usage import UsageTracker
 from apps.api.services.usage.tracker import CreditManager
@@ -281,3 +282,83 @@ async def add_credits(
             "added": body.amount,
             "transaction_id": body.transaction_id,
         }
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/user/password")
+async def change_password(
+    request: Request,
+    body: ChangePasswordRequest,
+):
+    from apps.api.core.security import verify_password
+
+    user_id, _ = await get_authenticated_user(request)
+
+    async with get_db_session() as session:
+        result = await session.execute(select(User).where(User.id == UUID(user_id)))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise NotFoundError("User", user_id)
+
+        if not user.password_hash:
+            raise RateLimitError("Password not set for this account")
+
+        if not verify_password(body.current_password, user.password_hash):
+            raise RateLimitError("Current password is incorrect")
+
+        if len(body.new_password) < 8:
+            raise RateLimitError("Password must be at least 8 characters")
+
+        user.password_hash = hash_password(body.new_password)
+        await session.commit()
+
+        return {"message": "Password changed successfully"}
+
+
+@router.post("/user/keys/revoke-all")
+async def revoke_all_api_keys(
+    request: Request,
+):
+    user_id, _ = await get_authenticated_user(request)
+
+    async with get_db_session() as session:
+        result = await session.execute(
+            select(ApiKey).where(
+                ApiKey.user_id == UUID(user_id),
+                ApiKey.revoked_at.is_(None),
+            )
+        )
+        keys = result.scalars().all()
+
+        from datetime import datetime
+
+        for key in keys:
+            key.revoked_at = datetime.now(UTC)
+
+        await session.commit()
+
+        return {"message": f"Revoked {len(keys)} API key(s)"}
+
+
+@router.delete("/user")
+async def delete_account(
+    request: Request,
+):
+    user_id, _ = await get_authenticated_user(request)
+
+    async with get_db_session() as session:
+        result = await session.execute(select(User).where(User.id == UUID(user_id)))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise NotFoundError("User", user_id)
+
+        user.is_active = False
+        await session.commit()
+
+        return {"message": "Account deleted successfully"}
