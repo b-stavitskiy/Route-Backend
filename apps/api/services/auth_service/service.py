@@ -92,6 +92,24 @@ class AuthService:
         access_token: str | None = None,
         refresh_token: str | None = None,
     ) -> User:
+        from sqlalchemy import select
+        from packages.db.models import User as UserModel
+
+        existing_by_provider = None
+        if provider == OAuthProvider.GITHUB:
+            result = await self.session.execute(
+                select(UserModel).where(UserModel.github_id == provider_user_id)
+            )
+            existing_by_provider = result.scalar_one_or_none()
+
+        if existing_by_provider:
+            if avatar_url:
+                existing_by_provider.avatar_url = avatar_url
+            if name:
+                existing_by_provider.name = name
+            await self.session.flush()
+            return existing_by_provider
+
         existing_by_email = await self.get_user_by_email(email)
         if existing_by_email:
             if provider == OAuthProvider.GITHUB and not existing_by_email.github_id:
