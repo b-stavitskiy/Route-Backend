@@ -98,7 +98,7 @@ ALLOWED_OAUTH_PROVIDERS = {"github"}
 ACCESS_TOKEN_COOKIE = "access_token"
 REFRESH_TOKEN_COOKIE = "refresh_token"
 CSRF_TOKEN_COOKIE = "csrf_token"
-COOKIE_DOMAIN = None
+COOKIE_DOMAIN = ".routing.run"
 COOKIE_SECURE = True
 COOKIE_SAMESITE = "lax"
 
@@ -121,6 +121,7 @@ def create_auth_cookies(access_token: str, refresh_token: str) -> dict:
     refresh_max_age = settings.refresh_token_expire_days * 24 * 60 * 60
 
     access_cookie = get_cookie_settings(ACCESS_TOKEN_COOKIE, access_max_age)
+    access_cookie["httponly"] = False
     refresh_cookie = get_cookie_settings(REFRESH_TOKEN_COOKIE, refresh_max_age)
 
     access_cookie["value"] = access_token
