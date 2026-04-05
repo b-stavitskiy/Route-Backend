@@ -566,7 +566,7 @@ async def logout(
         try:
             from apps.api.core.security import decode_token
 
-            payload = verify_access_token(token)
+            payload = await verify_access_token(token)
             jti = payload.get("jti")
             exp = payload.get("exp")
             if jti and exp:
@@ -717,7 +717,7 @@ async def get_me(
     if not token:
         raise AuthenticationError("Not authenticated")
 
-    payload = verify_access_token(token)
+    payload = await verify_access_token(token)
     user_id = payload.get("sub")
 
     async with get_db_session() as session:
