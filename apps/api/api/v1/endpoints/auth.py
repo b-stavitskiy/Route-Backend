@@ -180,6 +180,10 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str | None = None
+
+
 class LoginResponse(BaseModel):
     access_token: str
     refresh_token: str
@@ -497,8 +501,11 @@ async def login(
 async def refresh_token(
     request: Request,
     response: Response,
+    body: RefreshRequest = None,
 ):
     refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE)
+    if not refresh_token and body and body.refresh_token:
+        refresh_token = body.refresh_token
     if not refresh_token:
         raise AuthenticationError("Refresh token missing")
 
