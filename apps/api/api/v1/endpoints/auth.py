@@ -73,6 +73,22 @@ async def check_otp_rate_limit(email: str, purpose: str) -> None:
         )
 
 
+async def check_otp_verify_rate_limit(email: str, purpose: str) -> None:
+    redis = await get_redis()
+    limiter = RateLimiter(redis)
+    key = f"otp_verify_rate:{purpose}:{email}"
+    allowed, remaining, retry_after = await limiter.check_rate_limit(
+        key=key,
+        limit=10,
+        window_seconds=300,
+    )
+    if not allowed:
+        raise RateLimitError(
+            message=f"Too many failed OTP attempts. Please wait {retry_after} seconds before trying again.",
+            retry_after=retry_after,
+        )
+
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 ALLOWED_OAUTH_PROVIDERS = {"github"}
@@ -165,6 +181,7 @@ async def signup_verify(
     request: SignupVerifyRequest,
     db=Depends(get_db),
 ):
+    await check_otp_verify_rate_limit(request.email, "signup")
     if not await verify_otp(request.email, request.otp, "signup"):
         raise AuthenticationError("Invalid or expired OTP")
 
@@ -230,6 +247,7 @@ async def login_verify(
     request: LoginVerifyRequest,
     db=Depends(get_db),
 ):
+    await check_otp_verify_rate_limit(request.email, "login")
     if not await verify_otp(request.email, request.otp, "login"):
         raise AuthenticationError("Invalid or expired OTP")
 
@@ -264,6 +282,7 @@ async def signup(
     request: SignupVerifyRequest,
     db=Depends(get_db),
 ):
+    await check_otp_verify_rate_limit(request.email, "signup")
     if not await verify_otp(request.email, request.otp, "signup"):
         raise AuthenticationError("Invalid or expired OTP")
 
@@ -306,6 +325,7 @@ async def login(
     request: LoginVerifyRequest,
     db=Depends(get_db),
 ):
+    await check_otp_verify_rate_limit(request.email, "login")
     if not await verify_otp(request.email, request.otp, "login"):
         raise AuthenticationError("Invalid or expired OTP")
 
@@ -370,7 +390,19 @@ async def logout(
 ):
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
-        await blacklist_token(token)
+        try:
+            from apps.api.core.security import decode_token
+
+            payload = decode_token(token)
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                import time
+
+                remaining = max(int(exp - time.time()), 1)
+                await blacklist_token(jti, remaining)
+        except Exception:
+            pass
 
     return {"message": "Logged out"}
 
