@@ -184,3 +184,37 @@ async def verify_oauth_state(state: str) -> str | None:
     value = await redis.get(f"oauth_state:{state}")
     await redis.delete(f"oauth_state:{state}")
     return value
+
+
+def generate_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+async def store_csrf_token(token: str, user_id: str, expires: int = 3600) -> None:
+    redis = await get_redis()
+    await redis.setex(f"csrf:{user_id}:{token}", expires, "1")
+
+
+async def verify_csrf_token(token: str, user_id: str) -> bool:
+    redis = await get_redis()
+    key = f"csrf:{user_id}:{token}"
+    exists = await redis.exists(key)
+    if exists:
+        await redis.delete(key)
+    return exists == 1
+
+
+def create_token_response(
+    access_token: str,
+    refresh_token: str,
+    user_data: dict,
+) -> dict:
+    settings = get_settings()
+    access_expire = settings.access_token_expire_minutes * 60
+    refresh_expire = settings.refresh_token_expire_days * 24 * 60 * 60
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_in": access_expire,
+        "user": user_data,
+    }

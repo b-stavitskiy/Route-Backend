@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, UTC
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, field_validator
 from uuid import UUID, uuid4
@@ -11,6 +11,8 @@ from apps.api.core.security import (
     create_refresh_token,
     decode_token,
     generate_state_token,
+    generate_csrf_token,
+    store_csrf_token,
     hash_api_key,
     is_refresh_token_used,
     store_oauth_state,
@@ -93,6 +95,54 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 ALLOWED_OAUTH_PROVIDERS = {"github"}
 
+ACCESS_TOKEN_COOKIE = "access_token"
+REFRESH_TOKEN_COOKIE = "refresh_token"
+CSRF_TOKEN_COOKIE = "csrf_token"
+COOKIE_DOMAIN = None
+COOKIE_SECURE = True
+COOKIE_SAMESITE = "lax"
+
+
+def get_cookie_settings(token_name: str, max_age: int) -> dict:
+    return {
+        "name": token_name,
+        "domain": COOKIE_DOMAIN,
+        "secure": COOKIE_SECURE,
+        "httponly": True,
+        "samesite": COOKIE_SAMESITE,
+        "max_age": max_age,
+        "path": "/",
+    }
+
+
+def create_auth_cookies(access_token: str, refresh_token: str) -> dict:
+    settings = get_settings()
+    access_max_age = settings.access_token_expire_minutes * 60
+    refresh_max_age = settings.refresh_token_expire_days * 24 * 60 * 60
+
+    access_cookie = get_cookie_settings(ACCESS_TOKEN_COOKIE, access_max_age)
+    refresh_cookie = get_cookie_settings(REFRESH_TOKEN_COOKIE, refresh_max_age)
+
+    access_cookie["value"] = access_token
+    refresh_cookie["value"] = refresh_token
+
+    return {
+        ACCESS_TOKEN_COOKIE: access_cookie,
+        REFRESH_TOKEN_COOKIE: refresh_cookie,
+    }
+
+
+def clear_auth_cookies() -> dict:
+    access_cookie = get_cookie_settings(ACCESS_TOKEN_COOKIE, 0)
+    refresh_cookie = get_cookie_settings(REFRESH_TOKEN_COOKIE, 0)
+    access_cookie["value"] = ""
+    refresh_cookie["value"] = ""
+
+    return {
+        ACCESS_TOKEN_COOKIE: access_cookie,
+        REFRESH_TOKEN_COOKIE: refresh_cookie,
+    }
+
 
 class SignupInitRequest(BaseModel):
     email: EmailStr
@@ -122,19 +172,17 @@ class LoginVerifyRequest(BaseModel):
     otp: str
 
 
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
+    csrf_token: str
     token_type: str = "bearer"
 
 
 class LoginResponse(BaseModel):
     access_token: str
     refresh_token: str
+    csrf_token: str
     token_type: str = "bearer"
     user: "UserResponse"
 
@@ -176,9 +224,10 @@ async def signup_init(
     return MessageResponse(message="OTP sent to email")
 
 
-@router.post("/signup/verify", response_model=LoginResponse)
+@router.post("/signup/verify")
 async def signup_verify(
     request: SignupVerifyRequest,
+    response: Response,
     db=Depends(get_db),
 ):
     await check_otp_verify_rate_limit(request.email, "signup")
@@ -204,20 +253,38 @@ async def signup_verify(
         refresh_token = create_refresh_token(subject=str(user.id))
         await create_session(user.id, refresh_token, db_session=session)
 
+        csrf_token = generate_csrf_token()
+        await store_csrf_token(csrf_token, str(user.id))
+
+        cookies = create_auth_cookies(access_token, refresh_token)
+        for cookie_name, cookie_params in cookies.items():
+            response.set_cookie(**cookie_params)
+        response.set_cookie(
+            name=CSRF_TOKEN_COOKIE,
+            value=csrf_token,
+            domain=COOKIE_DOMAIN,
+            secure=COOKIE_SECURE,
+            httponly=False,
+            samesite=COOKIE_SAMESITE,
+            max_age=3600,
+            path="/",
+        )
+
         email_service = get_email_service()
         await email_service.send_welcome(user.email, user.name)
 
-        return LoginResponse(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            user=UserResponse(
-                id=str(user.id),
-                email=user.email,
-                name=user.name,
-                plan_tier=user.plan_tier.value,
-                email_verified=user.email_verified,
-            ),
-        )
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "csrf_token": csrf_token,
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "plan_tier": user.plan_tier.value,
+                "email_verified": user.email_verified,
+            },
+        }
 
 
 @router.post("/login/init", response_model=MessageResponse)
@@ -242,9 +309,10 @@ async def login_init(
     return MessageResponse(message="OTP sent to email")
 
 
-@router.post("/login/verify", response_model=LoginResponse)
+@router.post("/login/verify")
 async def login_verify(
     request: LoginVerifyRequest,
+    response: Response,
     db=Depends(get_db),
 ):
     await check_otp_verify_rate_limit(request.email, "login")
@@ -264,22 +332,41 @@ async def login_verify(
         refresh_token = create_refresh_token(subject=str(user.id))
         await create_session(user.id, refresh_token, db_session=session)
 
-        return LoginResponse(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            user=UserResponse(
-                id=str(user.id),
-                email=user.email,
-                name=user.name,
-                plan_tier=user.plan_tier.value,
-                email_verified=user.email_verified,
-            ),
+        csrf_token = generate_csrf_token()
+        await store_csrf_token(csrf_token, str(user.id))
+
+        cookies = create_auth_cookies(access_token, refresh_token)
+        for cookie_name, cookie_params in cookies.items():
+            response.set_cookie(**cookie_params)
+        response.set_cookie(
+            name=CSRF_TOKEN_COOKIE,
+            value=csrf_token,
+            domain=COOKIE_DOMAIN,
+            secure=COOKIE_SECURE,
+            httponly=False,
+            samesite=COOKIE_SAMESITE,
+            max_age=3600,
+            path="/",
         )
 
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "csrf_token": csrf_token,
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "plan_tier": user.plan_tier.value,
+                "email_verified": user.email_verified,
+            },
+        }
 
-@router.post("/signup", response_model=LoginResponse)
+
+@router.post("/signup")
 async def signup(
     request: SignupVerifyRequest,
+    response: Response,
     db=Depends(get_db),
 ):
     await check_otp_verify_rate_limit(request.email, "signup")
@@ -303,26 +390,46 @@ async def signup(
             additional_claims={"plan": user.plan_tier.value},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
+        await create_session(user.id, refresh_token, db_session=session)
+
+        csrf_token = generate_csrf_token()
+        await store_csrf_token(csrf_token, str(user.id))
+
+        cookies = create_auth_cookies(access_token, refresh_token)
+        for cookie_name, cookie_params in cookies.items():
+            response.set_cookie(**cookie_params)
+        response.set_cookie(
+            name=CSRF_TOKEN_COOKIE,
+            value=csrf_token,
+            domain=COOKIE_DOMAIN,
+            secure=COOKIE_SECURE,
+            httponly=False,
+            samesite=COOKIE_SAMESITE,
+            max_age=3600,
+            path="/",
+        )
 
         email_service = get_email_service()
         await email_service.send_welcome(user.email, user.name)
 
-        return LoginResponse(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            user=UserResponse(
-                id=str(user.id),
-                email=user.email,
-                name=user.name,
-                plan_tier=user.plan_tier.value,
-                email_verified=user.email_verified,
-            ),
-        )
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "csrf_token": csrf_token,
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "plan_tier": user.plan_tier.value,
+                "email_verified": user.email_verified,
+            },
+        }
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login")
 async def login(
     request: LoginVerifyRequest,
+    response: Response,
     db=Depends(get_db),
 ):
     await check_otp_verify_rate_limit(request.email, "login")
@@ -342,24 +449,47 @@ async def login(
         refresh_token = create_refresh_token(subject=str(user.id))
         await create_session(user.id, refresh_token, db_session=session)
 
-        return LoginResponse(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            user=UserResponse(
-                id=str(user.id),
-                email=user.email,
-                name=user.name,
-                plan_tier=user.plan_tier.value,
-                email_verified=user.email_verified,
-            ),
+        csrf_token = generate_csrf_token()
+        await store_csrf_token(csrf_token, str(user.id))
+
+        cookies = create_auth_cookies(access_token, refresh_token)
+        for cookie_name, cookie_params in cookies.items():
+            response.set_cookie(**cookie_params)
+        response.set_cookie(
+            name=CSRF_TOKEN_COOKIE,
+            value=csrf_token,
+            domain=COOKIE_DOMAIN,
+            secure=COOKIE_SECURE,
+            httponly=False,
+            samesite=COOKIE_SAMESITE,
+            max_age=3600,
+            path="/",
         )
 
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "csrf_token": csrf_token,
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "plan_tier": user.plan_tier.value,
+                "email_verified": user.email_verified,
+            },
+        }
 
-@router.post("/refresh", response_model=TokenResponse)
+
+@router.post("/refresh")
 async def refresh_token(
-    request: RefreshRequest,
+    request: Request,
+    response: Response,
 ):
-    payload = verify_refresh_token(request.refresh_token)
+    refresh_token = request.cookies.get(REFRESH_TOKEN_COOKIE)
+    if not refresh_token:
+        raise AuthenticationError("Refresh token missing")
+
+    payload = verify_refresh_token(refresh_token)
     user_id = payload.get("sub")
     jti = payload.get("jti")
 
@@ -377,15 +507,35 @@ async def refresh_token(
     new_refresh_token = create_refresh_token(subject=user_id)
     await create_session(UUID(user_id), new_refresh_token)
 
+    csrf_token = generate_csrf_token()
+    await store_csrf_token(csrf_token, user_id)
+
+    cookies = create_auth_cookies(access_token, new_refresh_token)
+    cookies[CSRF_TOKEN_COOKIE] = {
+        "name": CSRF_TOKEN_COOKIE,
+        "value": csrf_token,
+        "domain": COOKIE_DOMAIN,
+        "secure": COOKIE_SECURE,
+        "httponly": False,
+        "samesite": COOKIE_SAMESITE,
+        "max_age": 3600,
+        "path": "/",
+    }
+
+    for cookie_name, cookie_data in cookies.items():
+        response.set_cookie(**cookie_data)
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=new_refresh_token,
+        csrf_token=csrf_token,
     )
 
 
 @router.post("/logout")
 async def logout(
     request: Request,
+    response: Response,
     authorization: str = Header(None),
 ):
     if authorization and authorization.startswith("Bearer "):
@@ -403,6 +553,21 @@ async def logout(
                 await blacklist_token(jti, remaining)
         except Exception:
             pass
+
+    cookies = clear_auth_cookies()
+    cookies[CSRF_TOKEN_COOKIE] = {
+        "name": CSRF_TOKEN_COOKIE,
+        "value": "",
+        "domain": COOKIE_DOMAIN,
+        "secure": COOKIE_SECURE,
+        "httponly": False,
+        "samesite": COOKIE_SAMESITE,
+        "max_age": 0,
+        "path": "/",
+    }
+
+    for cookie_name, cookie_data in cookies.items():
+        response.set_cookie(**cookie_data)
 
     return {"message": "Logged out"}
 
@@ -436,9 +601,10 @@ async def oauth_redirect(
     raise AuthenticationError(f"Unknown OAuth provider: {provider}")
 
 
-@router.get("/callback/{provider}", response_model=TokenResponse)
+@router.get("/callback/{provider}")
 async def oauth_callback(
     provider: str,
+    response: Response,
     code: str = Query(...),
     state: str = Query(...),
     db=Depends(get_db),
@@ -483,10 +649,28 @@ async def oauth_callback(
         refresh_token = create_refresh_token(subject=str(user.id))
         await create_session(user.id, refresh_token, db_session=session)
 
-        return TokenResponse(
-            access_token=access_token,
-            refresh_token=refresh_token,
+        csrf_token = generate_csrf_token()
+        await store_csrf_token(csrf_token, str(user.id))
+
+        cookies = create_auth_cookies(access_token, refresh_token)
+        for cookie_name, cookie_params in cookies.items():
+            response.set_cookie(**cookie_params)
+        response.set_cookie(
+            name=CSRF_TOKEN_COOKIE,
+            value=csrf_token,
+            domain=COOKIE_DOMAIN,
+            secure=COOKIE_SECURE,
+            httponly=False,
+            samesite=COOKIE_SAMESITE,
+            max_age=3600,
+            path="/",
         )
+
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "csrf_token": csrf_token,
+        }
 
 
 @router.get("/me", response_model=UserResponse)
