@@ -692,9 +692,12 @@ async def oauth_callback(
             path="/",
         )
 
-        return RedirectResponse(
-            url=f"https://app.routing.run/auth/callback/github#access_token={access_token}&refresh_token={refresh_token}&csrf_token={csrf_token}"
-        )
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "csrf_token": csrf_token,
+            "redirect_url": f"https://app.routing.run/auth/callback/github?access_token={access_token}&refresh_token={refresh_token}&csrf_token={csrf_token}",
+        }
 
 
 @router.get("/me", response_model=UserResponse)
