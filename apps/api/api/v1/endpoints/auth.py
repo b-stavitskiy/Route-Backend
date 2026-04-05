@@ -685,11 +685,9 @@ async def oauth_callback(
             path="/",
         )
 
-        return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "csrf_token": csrf_token,
-        }
+        return RedirectResponse(
+            url=f"https://app.routing.run/auth/callback/github#access_token={access_token}&refresh_token={refresh_token}&csrf_token={csrf_token}"
+        )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -699,10 +697,16 @@ async def get_me(
     from apps.api.core.security import verify_access_token
 
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    token = None
+
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    else:
+        token = request.cookies.get(ACCESS_TOKEN_COOKIE)
+
+    if not token:
         raise AuthenticationError("Not authenticated")
 
-    token = auth_header[7:]
     payload = decode_token(token)
     user_id = payload.get("sub")
 
