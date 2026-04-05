@@ -105,7 +105,7 @@ COOKIE_SAMESITE = "lax"
 
 def get_cookie_settings(token_name: str, max_age: int) -> dict:
     return {
-        "name": token_name,
+        "key": token_name,
         "domain": COOKIE_DOMAIN,
         "secure": COOKIE_SECURE,
         "httponly": True,
@@ -263,7 +263,7 @@ async def signup_verify(
         for cookie_name, cookie_params in cookies.items():
             response.set_cookie(**cookie_params)
         response.set_cookie(
-            name=CSRF_TOKEN_COOKIE,
+            key=CSRF_TOKEN_COOKIE,
             value=csrf_token,
             domain=COOKIE_DOMAIN,
             secure=COOKIE_SECURE,
@@ -345,7 +345,7 @@ async def login_verify(
         for cookie_name, cookie_params in cookies.items():
             response.set_cookie(**cookie_params)
         response.set_cookie(
-            name=CSRF_TOKEN_COOKIE,
+            key=CSRF_TOKEN_COOKIE,
             value=csrf_token,
             domain=COOKIE_DOMAIN,
             secure=COOKIE_SECURE,
@@ -408,7 +408,7 @@ async def signup(
         for cookie_name, cookie_params in cookies.items():
             response.set_cookie(**cookie_params)
         response.set_cookie(
-            name=CSRF_TOKEN_COOKIE,
+            key=CSRF_TOKEN_COOKIE,
             value=csrf_token,
             domain=COOKIE_DOMAIN,
             secure=COOKIE_SECURE,
@@ -468,7 +468,7 @@ async def login(
         for cookie_name, cookie_params in cookies.items():
             response.set_cookie(**cookie_params)
         response.set_cookie(
-            name=CSRF_TOKEN_COOKIE,
+            key=CSRF_TOKEN_COOKIE,
             value=csrf_token,
             domain=COOKIE_DOMAIN,
             secure=COOKIE_SECURE,
@@ -674,7 +674,7 @@ async def oauth_callback(
         for cookie_name, cookie_params in cookies.items():
             response.set_cookie(**cookie_params)
         response.set_cookie(
-            name=CSRF_TOKEN_COOKIE,
+            key=CSRF_TOKEN_COOKIE,
             value=csrf_token,
             domain=COOKIE_DOMAIN,
             secure=COOKIE_SECURE,
