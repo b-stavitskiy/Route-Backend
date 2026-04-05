@@ -528,7 +528,7 @@ async def refresh_token(
 
     cookies = create_auth_cookies(access_token, new_refresh_token)
     cookies[CSRF_TOKEN_COOKIE] = {
-        "name": CSRF_TOKEN_COOKIE,
+        "key": CSRF_TOKEN_COOKIE,
         "value": csrf_token,
         "domain": COOKIE_DOMAIN,
         "secure": COOKIE_SECURE,
@@ -572,7 +572,7 @@ async def logout(
 
     cookies = clear_auth_cookies()
     cookies[CSRF_TOKEN_COOKIE] = {
-        "name": CSRF_TOKEN_COOKIE,
+        "key": CSRF_TOKEN_COOKIE,
         "value": "",
         "domain": COOKIE_DOMAIN,
         "secure": COOKIE_SECURE,
