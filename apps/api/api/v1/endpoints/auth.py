@@ -254,7 +254,10 @@ async def signup_verify(
         await create_session(user.id, refresh_token, db_session=session)
 
         csrf_token = generate_csrf_token()
-        await store_csrf_token(csrf_token, str(user.id))
+        try:
+            await store_csrf_token(csrf_token, str(user.id))
+        except Exception:
+            pass
 
         cookies = create_auth_cookies(access_token, refresh_token)
         for cookie_name, cookie_params in cookies.items():
@@ -333,7 +336,10 @@ async def login_verify(
         await create_session(user.id, refresh_token, db_session=session)
 
         csrf_token = generate_csrf_token()
-        await store_csrf_token(csrf_token, str(user.id))
+        try:
+            await store_csrf_token(csrf_token, str(user.id))
+        except Exception:
+            pass
 
         cookies = create_auth_cookies(access_token, refresh_token)
         for cookie_name, cookie_params in cookies.items():
@@ -393,7 +399,10 @@ async def signup(
         await create_session(user.id, refresh_token, db_session=session)
 
         csrf_token = generate_csrf_token()
-        await store_csrf_token(csrf_token, str(user.id))
+        try:
+            await store_csrf_token(csrf_token, str(user.id))
+        except Exception:
+            pass
 
         cookies = create_auth_cookies(access_token, refresh_token)
         for cookie_name, cookie_params in cookies.items():
@@ -450,7 +459,10 @@ async def login(
         await create_session(user.id, refresh_token, db_session=session)
 
         csrf_token = generate_csrf_token()
-        await store_csrf_token(csrf_token, str(user.id))
+        try:
+            await store_csrf_token(csrf_token, str(user.id))
+        except Exception:
+            pass
 
         cookies = create_auth_cookies(access_token, refresh_token)
         for cookie_name, cookie_params in cookies.items():
@@ -508,7 +520,10 @@ async def refresh_token(
     await create_session(UUID(user_id), new_refresh_token)
 
     csrf_token = generate_csrf_token()
-    await store_csrf_token(csrf_token, user_id)
+    try:
+        await store_csrf_token(csrf_token, user_id)
+    except Exception:
+        pass
 
     cookies = create_auth_cookies(access_token, new_refresh_token)
     cookies[CSRF_TOKEN_COOKIE] = {
@@ -650,7 +665,10 @@ async def oauth_callback(
         await create_session(user.id, refresh_token, db_session=session)
 
         csrf_token = generate_csrf_token()
-        await store_csrf_token(csrf_token, str(user.id))
+        try:
+            await store_csrf_token(csrf_token, str(user.id))
+        except Exception:
+            pass
 
         cookies = create_auth_cookies(access_token, refresh_token)
         for cookie_name, cookie_params in cookies.items():
