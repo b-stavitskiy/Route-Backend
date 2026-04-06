@@ -62,6 +62,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("Authorization")
         api_key = request.headers.get("X-API-Key", "")
 
+        import logging
+
+        logging.getLogger("routing.run.api").info(
+            f"Auth check - path: {request.url.path}, has_auth_header: {bool(auth_header)}, has_api_key: {bool(api_key)}"
+        )
+
         if api_key:
             return await call_next(request)
 
