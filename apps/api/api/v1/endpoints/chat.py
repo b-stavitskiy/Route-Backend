@@ -133,8 +133,6 @@ async def stream_generator(
     latency_ms = 0
     start_time = time.time()
 
-    yield b"event: ping\n\n"
-
     try:
         async for chunk in router_instance.route_chat_complete_stream(
             model=model,
