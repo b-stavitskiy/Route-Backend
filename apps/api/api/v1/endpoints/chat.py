@@ -393,5 +393,6 @@ async def chat_completions(
         f"output_tokens={output_tokens} | latency_ms={response.get('latency_ms')} | "
         f"cost={actual_cost} | component=chat"
     )
+    logger.info(f"Response body: {response}")
 
     return response
