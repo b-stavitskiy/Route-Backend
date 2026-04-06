@@ -151,7 +151,7 @@ async def stream_generator(
                 continue
             if not isinstance(chunk, dict):
                 continue
-            data = chunk.get("data", {})
+            data = chunk.get("data") or {}
             if isinstance(data, str):
                 try:
                     data = json.loads(data)
@@ -169,15 +169,24 @@ async def stream_generator(
                 break
 
             if "usage" in data:
-                usage = data.get("usage", {})
-                input_tokens = usage.get("prompt_tokens", 0) or 0
-                output_tokens = usage.get("completion_tokens", 0) or 0
+                usage = data.get("usage") or {}
+                input_tokens = usage.get("prompt_tokens") or 0
+                output_tokens = usage.get("completion_tokens") or 0
 
             if "provider" in data:
-                provider = data.get("provider", "unknown")
+                provider = data.get("provider") or "unknown"
 
-            delta = data.get("delta", data.get("content", ""))
-            if delta:
+            delta = None
+            finish_reason = None
+            if "choices" in data and len(data["choices"]) > 0:
+                choice = data["choices"][0]
+                if "delta" in choice:
+                    delta = choice["delta"].get("content", "")
+                elif "message" in choice:
+                    delta = choice["message"].get("content", "")
+                finish_reason = choice.get("finish_reason")
+
+            if delta is not None:
                 chunk_data = {
                     "id": request_id,
                     "object": "chat.completion.chunk",
@@ -187,7 +196,7 @@ async def stream_generator(
                         {
                             "index": 0,
                             "delta": {"content": delta},
-                            "finish_reason": None,
+                            "finish_reason": finish_reason,
                         }
                     ],
                 }
