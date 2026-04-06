@@ -172,18 +172,6 @@ def create_app() -> FastAPI:
     app.add_middleware(ExceptionHandlerMiddleware)
     app.add_middleware(MetricsMiddleware)
     app.add_middleware(AuthMiddleware)
-
-    @app.middleware("http")
-    async def add_cors_for_ai_endpoints(request, call_next):
-        ai_paths = ["/v1/chat", "/v1/images", "/v1/anthropic"]
-        if any(request.url.path.startswith(path) for path in ai_paths):
-            response = await call_next(request)
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "*"
-            response.headers["Access-Control-Allow-Headers"] = "*"
-            return response
-        return await call_next(request)
-
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
@@ -191,6 +179,26 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def add_cors_for_ai_endpoints(request, call_next):
+        ai_paths = ["/v1/chat", "/v1/images", "/v1/anthropic"]
+        if any(request.url.path.startswith(path) for path in ai_paths):
+            if request.method == "OPTIONS":
+                from fastapi.responses import Response
+
+                return Response(
+                    status_code=200,
+                    headers={
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "*",
+                        "Access-Control-Allow-Headers": "*",
+                    },
+                )
+            response = await call_next(request)
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            return response
+        return await call_next(request)
 
     app.include_router(v1_router)
 
