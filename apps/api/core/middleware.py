@@ -62,37 +62,31 @@ class AuthMiddleware(BaseHTTPMiddleware):
         auth_header = request.headers.get("Authorization")
         api_key = request.headers.get("X-API-Key", "")
 
-        import logging
-
-        logging.getLogger("routing.run.api").info(
-            f"Auth check - path: {request.url.path}, has_auth_header: {bool(auth_header)}, has_api_key: {bool(api_key)}"
-        )
-
         if api_key:
+            request.state.api_key = api_key
             return await call_next(request)
 
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return JSONResponse(
-                content={"message": "Authentication required"},
-                status_code=401,
-            )
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            settings = get_settings()
+            if token.startswith(settings.api_key_prefix):
+                request.state.api_key = token
+                return await call_next(request)
 
-        token = auth_header[7:]
-        try:
-            payload = await verify_access_token(token)
-            request.state.user_id = payload.get("sub")
-        except AuthenticationError as e:
-            import logging
+            try:
+                payload = await verify_access_token(token)
+                request.state.user_id = payload.get("sub")
+                return await call_next(request)
+            except AuthenticationError:
+                return JSONResponse(
+                    content={"message": "Invalid or expired token"},
+                    status_code=401,
+                )
 
-            logging.getLogger("routing.run.api").error(
-                f"Token verification failed: {e}, token_prefix: {token[:20] if token else 'None'}..."
-            )
-            return JSONResponse(
-                content={"message": "Invalid or expired token"},
-                status_code=401,
-            )
-
-        return await call_next(request)
+        return JSONResponse(
+            content={"message": "Authentication required"},
+            status_code=401,
+        )
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
