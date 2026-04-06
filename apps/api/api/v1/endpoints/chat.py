@@ -60,19 +60,11 @@ class UsageInfo(BaseModel):
 
 async def get_user_from_request(request: Request) -> tuple[str, str, str]:
     auth_header = request.headers.get("Authorization", "")
-
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-        try:
-            payload = await verify_access_token(token)
-            user_id = payload.get("sub")
-            plan = payload.get("plan", "free")
-            api_key_id = ""
-            return user_id, plan, api_key_id
-        except Exception:
-            pass
-
     api_key = request.headers.get("X-API-Key", "")
+
+    if hasattr(request.state, "api_key") and request.state.api_key:
+        api_key = request.state.api_key
+
     if api_key:
         async with get_db_session() as session:
             from sqlalchemy import select
@@ -97,6 +89,17 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
                 return str(api_key_obj.user_id), current_plan, str(api_key_obj.id)
             else:
                 raise AuthenticationError("Invalid API key")
+
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        try:
+            payload = await verify_access_token(token)
+            user_id = payload.get("sub")
+            plan = payload.get("plan", "free")
+            api_key_id = ""
+            return user_id, plan, api_key_id
+        except Exception:
+            pass
 
     raise AuthenticationError("Authentication required")
 
