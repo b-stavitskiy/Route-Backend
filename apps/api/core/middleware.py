@@ -64,8 +64,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         import logging
 
+        settings = get_settings()
         logging.getLogger("routing.run.api").info(
-            f"Auth - path: {request.url.path}, auth_header: {auth_header[:50] if auth_header else None}, api_key: {api_key[:20] if api_key else None}"
+            f"Auth - path: {request.url.path}, auth_header: {auth_header[:50] if auth_header else None}, api_key: {api_key[:20] if api_key else None}, prefix: {settings.api_key_prefix}"
         )
 
         if api_key:
@@ -75,6 +76,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header[7:]
             settings = get_settings()
+            logging.getLogger("routing.run.api").info(
+                f"Bearer token check - starts_with_prefix: {token.startswith(settings.api_key_prefix)}, prefix: {settings.api_key_prefix}, token: {token[:30]}"
+            )
             if token.startswith(settings.api_key_prefix):
                 request.state.api_key = token
                 return await call_next(request)
