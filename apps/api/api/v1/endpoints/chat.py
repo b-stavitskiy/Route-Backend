@@ -144,6 +144,8 @@ async def stream_generator(
             tool_choice=tool_choice,
             **kwargs,
         ):
+            if not chunk or not isinstance(chunk, dict):
+                continue
             data = chunk.get("data", {})
             if isinstance(data, str):
                 try:
