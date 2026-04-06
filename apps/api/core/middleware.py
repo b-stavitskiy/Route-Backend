@@ -81,7 +81,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         try:
             payload = await verify_access_token(token)
             request.state.user_id = payload.get("sub")
-        except AuthenticationError:
+        except AuthenticationError as e:
+            import logging
+
+            logging.getLogger("routing.run.api").error(
+                f"Token verification failed: {e}, token_prefix: {token[:20] if token else 'None'}..."
+            )
             return JSONResponse(
                 content={"message": "Invalid or expired token"},
                 status_code=401,
