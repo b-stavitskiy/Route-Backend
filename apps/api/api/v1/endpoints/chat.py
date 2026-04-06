@@ -59,7 +59,6 @@ class UsageInfo(BaseModel):
 
 
 async def get_user_from_request(request: Request) -> tuple[str, str, str]:
-    auth_header = request.headers.get("Authorization", "")
     api_key = request.headers.get("X-API-Key", "")
 
     if hasattr(request.state, "api_key") and request.state.api_key:
@@ -90,6 +89,7 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
             else:
                 raise AuthenticationError("Invalid API key")
 
+    auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
         try:
