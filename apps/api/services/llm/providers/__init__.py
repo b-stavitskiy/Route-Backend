@@ -105,6 +105,17 @@ class ZAIProvider(OpenAICompatProvider):
         )
 
 
+class CrofProvider(OpenAICompatProvider):
+    def __init__(self):
+        super().__init__(
+            name="crof",
+            api_key=os.environ.get("CROF_API_KEY", ""),
+            base_url="https://crof.ai/v1",
+            timeout=60,
+            max_connections=100,
+        )
+
+
 class MiniMaxImageProvider:
     def __init__(self):
         self.name = "minimax_image"
@@ -211,6 +222,7 @@ PROVIDER_CLASSES = {
     "opencode_messages": OpenCodeMessagesProvider,
     "chutes": ChutesProvider,
     "zai": ZAIProvider,
+    "crof": CrofProvider,
 }
 
 

@@ -1,25 +1,26 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
+
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, field_validator
-from uuid import UUID, uuid4
+
 from apps.api.core.config import get_settings
+from apps.api.core.otp import generate_otp, store_otp, verify_otp
 from apps.api.core.security import (
-    blacklist_token,
     blacklist_refresh_token,
+    blacklist_token,
     create_access_token,
     create_refresh_token,
-    decode_token,
-    generate_state_token,
     generate_csrf_token,
-    store_csrf_token,
+    generate_state_token,
     hash_api_key,
     is_refresh_token_used,
+    store_csrf_token,
     store_oauth_state,
     verify_oauth_state,
     verify_refresh_token,
 )
-from apps.api.core.otp import generate_otp, store_otp, verify_otp
 from apps.api.services.auth_service import AuthService
 from apps.api.services.email.service import get_email_service
 from packages.db.models import Session
@@ -70,23 +71,7 @@ async def check_otp_rate_limit(email: str, purpose: str) -> None:
     )
     if not allowed:
         raise RateLimitError(
-            message=f"Too many OTP requests. Please wait {retry_after} seconds before trying again.",
-            retry_after=retry_after,
-        )
-
-
-async def check_otp_verify_rate_limit(email: str, purpose: str) -> None:
-    redis = await get_redis()
-    limiter = RateLimiter(redis)
-    key = f"otp_verify_rate:{purpose}:{email}"
-    allowed, remaining, retry_after = await limiter.check_rate_limit(
-        key=key,
-        limit=10,
-        window_seconds=300,
-    )
-    if not allowed:
-        raise RateLimitError(
-            message=f"Too many failed OTP attempts. Please wait {retry_after} seconds before trying again.",
+            message=f"Too many OTP requests. Wait {retry_after} seconds before trying again.",
             retry_after=retry_after,
         )
 
@@ -235,7 +220,6 @@ async def signup_verify(
     response: Response,
     db=Depends(get_db),
 ):
-    await check_otp_verify_rate_limit(request.email, "signup")
     if not await verify_otp(request.email, request.otp, "signup"):
         raise AuthenticationError("Invalid or expired OTP")
 
@@ -323,7 +307,6 @@ async def login_verify(
     response: Response,
     db=Depends(get_db),
 ):
-    await check_otp_verify_rate_limit(request.email, "login")
     if not await verify_otp(request.email, request.otp, "login"):
         raise AuthenticationError("Invalid or expired OTP")
 
@@ -380,7 +363,6 @@ async def signup(
     response: Response,
     db=Depends(get_db),
 ):
-    await check_otp_verify_rate_limit(request.email, "signup")
     if not await verify_otp(request.email, request.otp, "signup"):
         raise AuthenticationError("Invalid or expired OTP")
 
@@ -446,7 +428,6 @@ async def login(
     response: Response,
     db=Depends(get_db),
 ):
-    await check_otp_verify_rate_limit(request.email, "login")
     if not await verify_otp(request.email, request.otp, "login"):
         raise AuthenticationError("Invalid or expired OTP")
 
@@ -564,7 +545,7 @@ async def logout(
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
         try:
-            from apps.api.core.security import decode_token
+            from apps.api.core.security import verify_access_token
 
             payload = await verify_access_token(token)
             jti = payload.get("jti")
@@ -664,6 +645,8 @@ async def oauth_callback(
             access_token=oauth_data.get("access_token"),
             refresh_token=oauth_data.get("refresh_token"),
         )
+
+        # print()
 
         access_token = create_access_token(
             subject=str(user.id),
