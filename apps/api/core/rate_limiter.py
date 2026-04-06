@@ -48,13 +48,11 @@ class PlanRateLimiter:
                 retry_after=retry_after,
             )
 
-    def _is_lite_model(self, model: str) -> bool:
-        model_config = self.provider_config.get_model_config(model)
-        if not model_config:
-            return False
-
+    def _is_lite_model(self, model: str, user_plan: str = "free") -> bool:
         models = self.provider_config._config.get("providers", {}).get("models", {})
-        return model in models.get("lite", {})
+        if model in models.get("lite", {}):
+            return True
+        return False
 
     def _get_plan_limits(self, plan: str) -> dict[str, int]:
         plan_config = self.provider_config.get_plan_config(plan)
