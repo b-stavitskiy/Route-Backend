@@ -64,6 +64,11 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
     if hasattr(request.state, "api_key") and request.state.api_key:
         api_key = request.state.api_key
 
+    import logging
+
+    logger = logging.getLogger("routing.run.api")
+    logger.info(f"get_user_from_request - api_key: {api_key[:30] if api_key else None}")
+
     if api_key:
         async with get_db_session() as session:
             from sqlalchemy import select
@@ -71,6 +76,7 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
             from packages.db.models import ApiKey, User
 
             key_hash = hash_api_key(api_key)
+            logger.info(f"get_user_from_request - key_hash: {key_hash}")
             result = await session.execute(
                 select(ApiKey).where(
                     ApiKey.key_hash == key_hash,
@@ -78,6 +84,7 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
                 )
             )
             api_key_obj = result.scalar_one_or_none()
+            logger.info(f"get_user_from_request - api_key_obj found: {api_key_obj is not None}")
 
             if api_key_obj:
                 user_result = await session.execute(
