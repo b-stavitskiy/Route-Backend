@@ -144,50 +144,54 @@ async def stream_generator(
             tool_choice=tool_choice,
             **kwargs,
         ):
-            if not chunk or not isinstance(chunk, dict):
+            if not chunk:
+                continue
+            if isinstance(chunk, str):
+                yield f"data: {chunk}\n\n".encode()
+                continue
+            if not isinstance(chunk, dict):
                 continue
             data = chunk.get("data", {})
             if isinstance(data, str):
                 try:
                     data = json.loads(data)
                 except json.JSONDecodeError:
-                    pass
+                    yield f"data: {data}\n\n".encode()
+                    continue
 
-            if isinstance(data, dict):
-                if data.get("event") == "error":
-                    error_msg = data.get("data", "Unknown error")
-                    error_payload = json.dumps(
-                        {"error": {"message": error_msg, "type": "api_error"}}
-                    )
-                    yield f"data: {error_payload}\n\n".encode()
-                    break
+            if not isinstance(data, dict):
+                continue
 
-                if "usage" in data:
-                    usage = data.get("usage", {})
-                    input_tokens = usage.get("prompt_tokens", 0)
-                    output_tokens = usage.get("completion_tokens", 0)
+            if data.get("event") == "error":
+                error_msg = data.get("data", "Unknown error")
+                error_payload = json.dumps({"error": {"message": error_msg, "type": "api_error"}})
+                yield f"data: {error_payload}\n\n".encode()
+                break
 
-                if "provider" in data:
-                    provider = data.get("provider", "unknown")
+            if "usage" in data:
+                usage = data.get("usage", {})
+                input_tokens = usage.get("prompt_tokens", 0) or 0
+                output_tokens = usage.get("completion_tokens", 0) or 0
 
-                delta = data.get("delta", data.get("content", ""))
-                if delta:
-                    chunk_data = {
-                        "id": request_id,
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": model,
-                        "choices": [
-                            {
-                                "index": 0,
-                                "delta": {"content": delta},
-                                "finish_reason": None,
-                            }
-                        ],
-                    }
-                    yield f"data: {json.dumps(chunk_data)}\n\n".encode()
-            elif isinstance(data, str):
-                yield f"data: {data}\n\n".encode()
+            if "provider" in data:
+                provider = data.get("provider", "unknown")
+
+            delta = data.get("delta", data.get("content", ""))
+            if delta:
+                chunk_data = {
+                    "id": request_id,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": delta},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(chunk_data)}\n\n".encode()
 
         yield b"data: [DONE]\n\n"
         latency_ms = int((time.time() - start_time) * 1000)
