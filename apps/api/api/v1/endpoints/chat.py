@@ -186,7 +186,7 @@ async def stream_generator(
                         ],
                     }
                     yield f"data: {json.dumps(chunk_data)}\n\n".encode()
-            elif isinstance(data, str) and data.startswith("{"):
+            elif isinstance(data, str):
                 yield f"data: {data}\n\n".encode()
 
         yield b"data: [DONE]\n\n"
