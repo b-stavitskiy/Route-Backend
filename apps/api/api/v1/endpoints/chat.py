@@ -322,7 +322,12 @@ async def chat_completions(
 
     router_instance = LLMRouter(redis)
 
-    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+    messages = []
+    for m in body.messages:
+        msg = {"role": m.role, "content": m.content}
+        if m.tool_call_id:
+            msg["tool_call_id"] = m.tool_call_id
+        messages.append(msg)
     logger.info(
         f"Routing request to model | model={body.model} | messages_count={len(messages)} | component=router"
     )

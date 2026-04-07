@@ -52,6 +52,7 @@ class ApiKeyResponse(BaseModel):
 class ChatMessage(BaseModel):
     role: str
     content: str
+    tool_call_id: str | None = None
 
 
 class ChatCompletionRequest(BaseModel):

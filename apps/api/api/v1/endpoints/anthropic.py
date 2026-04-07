@@ -118,7 +118,12 @@ async def create_message(
 
     router_instance = LLMRouter(redis)
 
-    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+    messages = []
+    for m in body.messages:
+        msg = {"role": m.role, "content": m.content}
+        if m.tool_call_id:
+            msg["tool_call_id"] = m.tool_call_id
+        messages.append(msg)
     messages = convert_to_openai_format(messages, body.system)
 
     logger.info(f"Routing Anthropic request to model | model={body.model} | component=router")
