@@ -377,6 +377,13 @@ class AnthropicCompatProvider(BaseLLMProvider):
         for msg in messages:
             if msg.get("role") == "system":
                 system_message = msg.get("content")
+            elif msg.get("role") == "tool":
+                tool_result = {
+                    "type": "tool_result",
+                    "tool_use_id": msg.get("tool_call_id", ""),
+                    "content": msg.get("content", ""),
+                }
+                processed_messages.append({"role": "user", "content": [tool_result]})
             else:
                 processed_messages.append(msg)
 
@@ -524,6 +531,13 @@ class AnthropicCompatProvider(BaseLLMProvider):
         for msg in messages:
             if msg.get("role") == "system":
                 system_message = msg.get("content")
+            elif msg.get("role") == "tool":
+                tool_result = {
+                    "type": "tool_result",
+                    "tool_use_id": msg.get("tool_call_id", ""),
+                    "content": msg.get("content", ""),
+                }
+                processed_messages.append({"role": "user", "content": [tool_result]})
             else:
                 processed_messages.append(msg)
 
