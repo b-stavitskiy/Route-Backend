@@ -138,6 +138,14 @@ class LLMRouter:
         routing_config = self.provider_config.get_routing_config()
         retry_count = routing_config.get("retry_count", 2)
 
+        has_tool_results = any(m.get("role") == "tool" for m in messages)
+        if has_tool_results:
+            logger.info(
+                f"Tool results detected in request, routing to first provider only | component=router"
+            )
+            provider_chain = [provider_chain[0]] if provider_chain else []
+            retry_count = 0
+
         logger.info(
             f"Routing chat request | model={model} | plan={user_plan} | request_id={request_id} | "
             f"providers={len(provider_chain)} | max_retries={retry_count}",
@@ -255,6 +263,14 @@ class LLMRouter:
 
         routing_config = self.provider_config.get_routing_config()
         retry_count = routing_config.get("retry_count", 2)
+
+        has_tool_results = any(m.get("role") == "tool" for m in messages)
+        if has_tool_results:
+            logger.info(
+                f"Tool results detected in request, routing to first provider only | component=router"
+            )
+            provider_chain = [provider_chain[0]] if provider_chain else []
+            retry_count = 0
 
         logger.info(
             f"Routing stream request | model={model} | plan={user_plan} | "
