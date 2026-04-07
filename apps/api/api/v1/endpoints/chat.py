@@ -11,7 +11,10 @@ from pydantic import BaseModel, Field
 from apps.api.core.rate_limiter import check_model_access, check_rate_limit
 from apps.api.core.security import hash_api_key, verify_access_token
 from apps.api.services.llm import LLMRouter
-from apps.api.services.llm.transforms import map_finish_reason
+from apps.api.services.llm.transforms import (
+    map_finish_reason,
+    store_streaming_tool_calls,
+)
 from apps.api.services.usage import CreditManager, UsageTracker
 from packages.db.models import UsageLog
 from packages.db.session import get_db_session
@@ -134,6 +137,8 @@ async def stream_generator(
     provider = "unknown"
     latency_ms = 0
     start_time = time.time()
+    streaming_tool_calls: list[dict[str, Any]] = []
+    redis = await get_redis()
 
     try:
         async for chunk in router_instance.route_chat_complete_stream(
@@ -144,6 +149,8 @@ async def stream_generator(
             max_tokens=max_tokens,
             tools=tools,
             tool_choice=tool_choice,
+            user_id=user_id,
+            stream_request_id=request_id,
             **kwargs,
         ):
             if not chunk:
@@ -198,6 +205,12 @@ async def stream_generator(
                         f"name={tc.get('function', {}).get('name')} | "
                         f"index={tc.get('index')} | component=chat"
                     )
+                    tc_copy = {
+                        "id": tc.get("id"),
+                        "function": tc.get("function"),
+                        "index": tc.get("index"),
+                    }
+                    streaming_tool_calls.append(tc_copy)
                 chunk_data = {
                     "id": request_id,
                     "object": "chat.completion.chunk",
@@ -227,6 +240,9 @@ async def stream_generator(
                     ],
                 }
                 yield f"data: {json.dumps(chunk_data)}\n\n".encode()
+
+        if streaming_tool_calls:
+            await store_streaming_tool_calls(redis, user_id, request_id, streaming_tool_calls)
 
         yield b"data: [DONE]\n\n"
         latency_ms = int((time.time() - start_time) * 1000)
@@ -344,6 +360,28 @@ async def chat_completions(
 
     tool_result_msgs = [m for m in messages if m.get("role") == "tool"]
     if tool_result_msgs:
+        assistant_with_tool_calls = None
+        for m in messages:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                assistant_with_tool_calls = m
+                break
+
+        if assistant_with_tool_calls and assistant_with_tool_calls.get("tool_calls"):
+            original_tool_calls = assistant_with_tool_calls.get("tool_calls", [])
+            logger.info(
+                f"Found {len(original_tool_calls)} original tool_calls from assistant message"
+            )
+
+            for idx, msg in enumerate(tool_result_msgs):
+                original_id = msg.get("tool_call_id", "")
+                if idx < len(original_tool_calls):
+                    provider_id = original_tool_calls[idx].get("id", original_id)
+                    if provider_id != original_id:
+                        logger.info(
+                            f"Tool result ID mapped by index: {original_id} -> {provider_id}"
+                        )
+                        msg["tool_call_id"] = provider_id
+
         for msg in tool_result_msgs:
             logger.info(
                 f"Tool result received: tool_call_id={msg.get('tool_call_id')} | "

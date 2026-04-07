@@ -251,9 +251,11 @@ class LLMRouter:
         user_plan: str,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        user_id: str | None = None,
+        stream_request_id: str | None = None,
         **kwargs,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        request_id = f"chatcmpl-{uuid4().hex[:8]}"
+        request_id = stream_request_id or f"chatcmpl-{uuid4().hex[:8]}"
 
         provider_chain = self.provider_config.get_provider_chain(model, user_plan)
         if not provider_chain:
@@ -322,6 +324,8 @@ class LLMRouter:
 
                         chunk["request_id"] = request_id
                         chunk["provider"] = provider_name
+                        if user_id:
+                            chunk["user_id"] = user_id
                         yield chunk
 
                     logger.info(
