@@ -31,6 +31,7 @@ class MessageContent(BaseModel):
 class Message(BaseModel):
     role: str
     content: str | list[MessageContent]
+    tool_call_id: str | None = None
 
 
 class Tool(BaseModel):
