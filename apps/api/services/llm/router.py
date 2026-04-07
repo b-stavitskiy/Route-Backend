@@ -1,7 +1,5 @@
 import asyncio
-import json
 import logging
-import re
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -141,7 +139,8 @@ class LLMRouter:
         has_tool_results = any(m.get("role") == "tool" for m in messages)
         if has_tool_results:
             logger.info(
-                f"Tool results detected in request, routing to first provider only | component=router"
+                "Tool results detected in request, routing to first provider only | "
+                "component=router"
             )
             provider_chain = [provider_chain[0]] if provider_chain else []
             retry_count = 0
@@ -267,7 +266,8 @@ class LLMRouter:
         has_tool_results = any(m.get("role") == "tool" for m in messages)
         if has_tool_results:
             logger.info(
-                f"Tool results detected in request, routing to first provider only | component=router"
+                "Tool results detected in request, routing to first provider only | "
+                "component=router"
             )
             provider_chain = [provider_chain[0]] if provider_chain else []
             retry_count = 0

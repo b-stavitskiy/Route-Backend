@@ -8,6 +8,12 @@ from typing import Any
 import httpx
 
 from apps.api.core.config import get_provider_config
+from apps.api.services.llm.transforms import (
+    ToolCallTracker,
+    sanitize_schema_for_provider,
+    transform_anthropic_messages,
+    transform_response_tool_calls,
+)
 from packages.shared.exceptions import ProviderError, ProviderTimeoutError
 
 logger = logging.getLogger("routing.run.api")
@@ -63,8 +69,9 @@ def transform_tools_for_provider(
                     {
                         "name": t.get("function", {}).get("name"),
                         "description": t.get("function", {}).get("description"),
-                        "parameters": _convert_schema_to_google(
-                            t.get("function", {}).get("parameters", {})
+                        "parameters": sanitize_schema_for_provider(
+                            t.get("function", {}).get("parameters", {}),
+                            provider_type,
                         ),
                     }
                 ]
@@ -374,24 +381,19 @@ class AnthropicCompatProvider(BaseLLMProvider):
     ) -> dict[str, Any]:
         client = await self.get_client()
 
+        tool_tracker = ToolCallTracker()
+        processed_messages, id_mapping = transform_anthropic_messages(messages, tool_tracker)
         system_message = None
-        processed_messages = []
-        for msg in messages:
+        final_messages = []
+        for msg in processed_messages:
             if msg.get("role") == "system":
                 system_message = msg.get("content")
-            elif msg.get("role") == "tool":
-                tool_result = {
-                    "type": "tool_result",
-                    "tool_use_id": msg.get("tool_call_id", ""),
-                    "content": msg.get("content", ""),
-                }
-                processed_messages.append({"role": "user", "content": [tool_result]})
             else:
-                processed_messages.append(msg)
+                final_messages.append(msg)
 
         payload = {
             "model": model,
-            "messages": processed_messages,
+            "messages": final_messages,
             "temperature": temperature,
         }
 
@@ -440,37 +442,19 @@ class AnthropicCompatProvider(BaseLLMProvider):
                 data = response.json()
 
                 message_content = ""
-                tool_calls = None
                 content_blocks = data.get("content", [])
 
-                if content_blocks:
-                    text_parts = []
-                    tool_call_idx = 0
-                    for block in content_blocks:
-                        if block.get("type") == "text":
-                            text_parts.append(block.get("text", ""))
-                        elif block.get("type") == "tool_use":
-                            if tool_calls is None:
-                                tool_calls = []
-                            tool_call_id = block.get("id", "")
-                            if not tool_call_id:
-                                tool_call_id = f"tool_{tool_call_idx}_{uuid.uuid4().hex[:8]}"
-                            tool_calls.append(
-                                {
-                                    "index": tool_call_idx,
-                                    "id": tool_call_id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": block.get("name", ""),
-                                        "arguments": json.dumps(block.get("input", {})),
-                                    },
-                                }
-                            )
-                            tool_call_idx += 1
-                    message_content = "\n".join(text_parts)
+                text_parts = []
+                for block in content_blocks:
+                    if block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
 
-                finish_reason = data.get("stop_reason", "stop")
-                if tool_calls:
+                message_content = "\n".join(text_parts)
+                tool_calls, finish_reason = transform_response_tool_calls(
+                    content_blocks, "anthropic", tool_tracker
+                )
+
+                if data.get("stop_reason") == "tool_use":
                     finish_reason = "tool_calls"
 
                 return {
@@ -526,24 +510,19 @@ class AnthropicCompatProvider(BaseLLMProvider):
     ) -> AsyncGenerator[dict[str, Any], None]:
         client = await self.get_client()
 
+        tool_tracker = ToolCallTracker()
+        processed_messages, id_mapping = transform_anthropic_messages(messages, tool_tracker)
         system_message = None
-        processed_messages = []
-        for msg in messages:
+        final_messages = []
+        for msg in processed_messages:
             if msg.get("role") == "system":
                 system_message = msg.get("content")
-            elif msg.get("role") == "tool":
-                tool_result = {
-                    "type": "tool_result",
-                    "tool_use_id": msg.get("tool_call_id", ""),
-                    "content": msg.get("content", ""),
-                }
-                processed_messages.append({"role": "user", "content": [tool_result]})
             else:
-                processed_messages.append(msg)
+                final_messages.append(msg)
 
         payload = {
             "model": model,
-            "messages": processed_messages,
+            "messages": final_messages,
             "temperature": temperature,
             "stream": True,
         }
@@ -631,8 +610,9 @@ class AnthropicCompatProvider(BaseLLMProvider):
                                 tc_id = content_block.get("id", "")
                                 if not tc_id:
                                     tc_id = f"tool_{tool_call_index}_{uuid.uuid4().hex[:8]}"
+                                unique_id = tool_tracker.get_unique_id(tc_id)
                                 current_tool_call = {
-                                    "id": tc_id,
+                                    "id": unique_id,
                                     "type": "function",
                                     "function": {
                                         "name": content_block.get("name", ""),

@@ -4,13 +4,14 @@ import time
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from apps.api.core.rate_limiter import check_model_access, check_rate_limit
 from apps.api.core.security import hash_api_key, verify_access_token
 from apps.api.services.llm import LLMRouter
+from apps.api.services.llm.transforms import map_finish_reason
 from apps.api.services.usage import CreditManager, UsageTracker
 from packages.db.models import UsageLog
 from packages.db.session import get_db_session
@@ -188,7 +189,7 @@ async def stream_generator(
                 elif "message" in choice:
                     delta = choice["message"].get("content", "")
                     tool_calls = choice["message"].get("tool_calls")
-                finish_reason = choice.get("finish_reason")
+                finish_reason = map_finish_reason(choice.get("finish_reason"))
 
             if tool_calls is not None:
                 chunk_data = {
@@ -254,8 +255,8 @@ async def stream_generator(
                 latency_ms=latency_ms,
             )
 
-            from uuid import UUID, uuid4
             import hashlib
+            from uuid import UUID, uuid4
 
             request_hash = hashlib.sha256(f"{user_id}:{request_id}".encode()).hexdigest()[:16]
 
@@ -295,7 +296,8 @@ async def chat_completions(
     user_id, plan, api_key_id = await get_user_from_request(request)
 
     logger.info(
-        f"Chat request | user={user_id} | plan={plan} | model={body.model} | stream={body.stream} | component=chat"
+        f"Chat request | user={user_id} | plan={plan} | model={body.model} | "
+        f"stream={body.stream} | component=chat"
     )
 
     logger.info(f"User authenticated | user_id={user_id} | plan={plan} | component=auth")
@@ -327,6 +329,10 @@ async def chat_completions(
     for m in body.messages:
         msg = {"role": m.role, "content": m.content}
         if m.tool_call_id is not None:
+            if m.role == "tool" and not m.tool_call_id:
+                raise HTTPException(
+                    status_code=400, detail="tool_call_id cannot be empty for tool results"
+                )
             msg["tool_call_id"] = m.tool_call_id
         messages.append(msg)
 
@@ -335,7 +341,8 @@ async def chat_completions(
         logger.info(f"Tool result messages received: {tool_result_msgs} | component=chat")
 
     logger.info(
-        f"Routing request to model | model={body.model} | messages_count={len(messages)} | component=router"
+        f"Routing request to model | model={body.model} | "
+        f"messages_count={len(messages)} | component=router"
     )
 
     if body.stream:
@@ -402,8 +409,8 @@ async def chat_completions(
         output_tokens=output_tokens,
     )
 
-    from uuid import UUID, uuid4
     import hashlib
+    from uuid import UUID, uuid4
 
     request_id = response.get("id", str(uuid4()))
     request_hash = hashlib.sha256(f"{user_id}:{request_id}".encode()).hexdigest()[:16]
