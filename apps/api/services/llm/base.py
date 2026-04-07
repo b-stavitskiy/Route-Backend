@@ -1,4 +1,5 @@
 import json
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -7,6 +8,8 @@ import httpx
 
 from apps.api.core.config import get_provider_config
 from packages.shared.exceptions import ProviderError, ProviderTimeoutError
+
+logger = logging.getLogger("routing.run.api")
 
 
 def transform_tools_for_provider(
