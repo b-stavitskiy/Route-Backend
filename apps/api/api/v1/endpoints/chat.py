@@ -326,7 +326,7 @@ async def chat_completions(
     messages = []
     for m in body.messages:
         msg = {"role": m.role, "content": m.content}
-        if m.tool_call_id:
+        if m.tool_call_id is not None:
             msg["tool_call_id"] = m.tool_call_id
         messages.append(msg)
     logger.info(
