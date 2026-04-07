@@ -426,6 +426,7 @@ class AnthropicCompatProvider(BaseLLMProvider):
 
                 if content_blocks:
                     text_parts = []
+                    tool_call_idx = 0
                     for block in content_blocks:
                         if block.get("type") == "text":
                             text_parts.append(block.get("text", ""))
@@ -434,6 +435,7 @@ class AnthropicCompatProvider(BaseLLMProvider):
                                 tool_calls = []
                             tool_calls.append(
                                 {
+                                    "index": tool_call_idx,
                                     "id": block.get("id", ""),
                                     "type": "function",
                                     "function": {
@@ -442,6 +444,7 @@ class AnthropicCompatProvider(BaseLLMProvider):
                                     },
                                 }
                             )
+                            tool_call_idx += 1
                     message_content = "\n".join(text_parts)
 
                 finish_reason = data.get("stop_reason", "stop")
@@ -629,13 +632,14 @@ class AnthropicCompatProvider(BaseLLMProvider):
 
                         elif event_type == "content_block_stop":
                             if current_tool_call:
+                                current_tool_call["index"] = tool_call_index
                                 yield {
                                     "event": "message",
                                     "data": json.dumps(
                                         {
                                             "choices": [
                                                 {
-                                                    "index": tool_call_index,
+                                                    "index": 0,
                                                     "delta": {"tool_calls": [current_tool_call]},
                                                     "finish_reason": "tool_calls",
                                                 }
