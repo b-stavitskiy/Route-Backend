@@ -264,7 +264,15 @@ class OpenAICompatProvider(BaseLLMProvider):
             )
 
             if response.status_code == 200:
-                return response.json()
+                result = response.json()
+                tool_calls = result.get("choices", [{}])[0].get("message", {}).get("tool_calls")
+                if tool_calls:
+                    for tc in tool_calls:
+                        logger.info(
+                            f"Non-streaming tool_calls from {self.name}: id={tc.get('id')} | "
+                            f"name={tc.get('function', {}).get('name')}"
+                        )
+                return result
             elif response.status_code == 429:
                 raise ProviderError("Rate limited", self.name)
             else:
@@ -345,17 +353,6 @@ class OpenAICompatProvider(BaseLLMProvider):
                         data = line[6:]
                         if data == "[DONE]":
                             break
-                        try:
-                            parsed = json.loads(data)
-                            if parsed.get("choices"):
-                                choice = parsed["choices"][0]
-                                tc = choice.get("delta", {}).get("tool_calls")
-                                if tc:
-                                    logger.info(
-                                        f"Streaming tool_calls: {tc} | provider={self.name}"
-                                    )
-                        except json.JSONDecodeError:
-                            pass
                         yield {"event": "message", "data": data}
                     elif line.startswith("error: "):
                         error_data = line[7:]
