@@ -1,3 +1,4 @@
+import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -418,6 +419,35 @@ class AnthropicCompatProvider(BaseLLMProvider):
 
             if response.status_code == 200:
                 data = response.json()
+
+                message_content = ""
+                tool_calls = None
+                content_blocks = data.get("content", [])
+
+                if content_blocks:
+                    text_parts = []
+                    for block in content_blocks:
+                        if block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                        elif block.get("type") == "tool_use":
+                            if tool_calls is None:
+                                tool_calls = []
+                            tool_calls.append(
+                                {
+                                    "id": block.get("id", ""),
+                                    "type": "function",
+                                    "function": {
+                                        "name": block.get("name", ""),
+                                        "arguments": json.dumps(block.get("input", {})),
+                                    },
+                                }
+                            )
+                    message_content = "\n".join(text_parts)
+
+                finish_reason = data.get("stop_reason", "stop")
+                if tool_calls:
+                    finish_reason = "tool_calls"
+
                 return {
                     "id": data.get("id", "unknown"),
                     "object": "chat.completion",
@@ -428,11 +458,15 @@ class AnthropicCompatProvider(BaseLLMProvider):
                             "index": 0,
                             "message": {
                                 "role": "assistant",
-                                "content": data.get("content", [{}])[0].get("text", "")
-                                if data.get("content")
-                                else "",
+                                "content": message_content,
+                                "tool_calls": tool_calls,
+                            }
+                            if tool_calls
+                            else {
+                                "role": "assistant",
+                                "content": message_content,
                             },
-                            "finish_reason": data.get("stop_reason", "stop"),
+                            "finish_reason": finish_reason,
                         }
                     ],
                     "usage": {
@@ -524,12 +558,93 @@ class AnthropicCompatProvider(BaseLLMProvider):
                         status_code=response.status_code,
                     )
 
+                current_tool_call = None
+                tool_call_index = None
                 async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data == "[DONE]":
+                    if line.startswith("event: "):
+                        event_type = line[7:]
+                        continue
+                    elif line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            if current_tool_call:
+                                yield {
+                                    "event": "message",
+                                    "data": json.dumps(
+                                        {
+                                            "choices": [
+                                                {
+                                                    "index": tool_call_index,
+                                                    "delta": {},
+                                                    "finish_reason": "tool_calls",
+                                                }
+                                            ]
+                                        }
+                                    ),
+                                }
                             break
-                        yield {"event": "message", "data": data}
+
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        event_type = data.get("type", "")
+
+                        if event_type == "content_block_start":
+                            content_block = data.get("content_block", {})
+                            if content_block.get("type") == "tool_use":
+                                tool_call_index = data.get("index", 0)
+                                current_tool_call = {
+                                    "id": content_block.get("id", ""),
+                                    "type": "function",
+                                    "function": {
+                                        "name": content_block.get("name", ""),
+                                        "arguments": "",
+                                    },
+                                }
+
+                        elif event_type == "content_block_delta":
+                            delta = data.get("delta", {})
+                            if delta.get("type") == "input_json":
+                                if current_tool_call:
+                                    current_tool_call["function"]["arguments"] += delta.get(
+                                        "partial_json", ""
+                                    )
+                            elif delta.get("type") == "text":
+                                yield {
+                                    "event": "message",
+                                    "data": json.dumps(
+                                        {
+                                            "choices": [
+                                                {
+                                                    "index": 0,
+                                                    "delta": {"content": delta.get("text", "")},
+                                                    "finish_reason": None,
+                                                }
+                                            ]
+                                        }
+                                    ),
+                                }
+
+                        elif event_type == "content_block_stop":
+                            if current_tool_call:
+                                yield {
+                                    "event": "message",
+                                    "data": json.dumps(
+                                        {
+                                            "choices": [
+                                                {
+                                                    "index": tool_call_index,
+                                                    "delta": {"tool_calls": [current_tool_call]},
+                                                    "finish_reason": "tool_calls",
+                                                }
+                                            ]
+                                        }
+                                    ),
+                                }
+                                current_tool_call = None
+                                tool_call_index = None
 
         except httpx.TimeoutException:
             raise ProviderTimeoutError(self.name, self.timeout)

@@ -178,15 +178,33 @@ async def stream_generator(
 
             delta = None
             finish_reason = None
+            tool_calls = None
             if "choices" in data and len(data["choices"]) > 0:
                 choice = data["choices"][0]
                 if "delta" in choice:
                     delta = choice["delta"].get("content", "")
+                    tool_calls = choice["delta"].get("tool_calls")
                 elif "message" in choice:
                     delta = choice["message"].get("content", "")
+                    tool_calls = choice["message"].get("tool_calls")
                 finish_reason = choice.get("finish_reason")
 
-            if delta is not None:
+            if tool_calls is not None:
+                chunk_data = {
+                    "id": request_id,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"tool_calls": tool_calls},
+                            "finish_reason": finish_reason,
+                        }
+                    ],
+                }
+                yield f"data: {json.dumps(chunk_data)}\n\n".encode()
+            elif delta is not None:
                 chunk_data = {
                     "id": request_id,
                     "object": "chat.completion.chunk",
