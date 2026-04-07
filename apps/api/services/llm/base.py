@@ -29,6 +29,7 @@ def transform_tools_for_provider(
         "deepseek",
         "grok",
         "zai",
+        "crof",
     ):
         return [
             {
