@@ -443,10 +443,15 @@ class AnthropicCompatProvider(BaseLLMProvider):
                         elif block.get("type") == "tool_use":
                             if tool_calls is None:
                                 tool_calls = []
+                            tool_call_id = block.get("id", "")
+                            if not tool_call_id:
+                                import uuid
+
+                                tool_call_id = f"tool_{tool_call_idx}_{uuid.uuid4().hex[:8]}"
                             tool_calls.append(
                                 {
                                     "index": tool_call_idx,
-                                    "id": block.get("id", ""),
+                                    "id": tool_call_id,
                                     "type": "function",
                                     "function": {
                                         "name": block.get("name", ""),
@@ -609,8 +614,13 @@ class AnthropicCompatProvider(BaseLLMProvider):
                             content_block = data.get("content_block", {})
                             if content_block.get("type") == "tool_use":
                                 tool_call_index = data.get("index", 0)
+                                tc_id = content_block.get("id", "")
+                                if not tc_id:
+                                    import uuid
+
+                                    tc_id = f"tool_{tool_call_index}_{uuid.uuid4().hex[:8]}"
                                 current_tool_call = {
-                                    "id": content_block.get("id", ""),
+                                    "id": tc_id,
                                     "type": "function",
                                     "function": {
                                         "name": content_block.get("name", ""),
