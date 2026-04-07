@@ -192,6 +192,12 @@ async def stream_generator(
                 finish_reason = map_finish_reason(choice.get("finish_reason"))
 
             if tool_calls is not None:
+                for tc in tool_calls:
+                    logger.info(
+                        f"Streaming tool_calls to client: id={tc.get('id')} | "
+                        f"name={tc.get('function', {}).get('name')} | "
+                        f"index={tc.get('index')} | component=chat"
+                    )
                 chunk_data = {
                     "id": request_id,
                     "object": "chat.completion.chunk",
@@ -338,7 +344,11 @@ async def chat_completions(
 
     tool_result_msgs = [m for m in messages if m.get("role") == "tool"]
     if tool_result_msgs:
-        logger.info(f"Tool result messages received: {tool_result_msgs} | component=chat")
+        for msg in tool_result_msgs:
+            logger.info(
+                f"Tool result received: tool_call_id={msg.get('tool_call_id')} | "
+                f"content_preview={str(msg.get('content', ''))[:100]} | component=chat"
+            )
 
     logger.info(
         f"Routing request to model | model={body.model} | "

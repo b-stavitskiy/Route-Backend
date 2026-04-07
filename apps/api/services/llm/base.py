@@ -303,9 +303,11 @@ class OpenAICompatProvider(BaseLLMProvider):
 
         tool_result_msgs = [m for m in messages if m.get("role") == "tool"]
         if tool_result_msgs:
-            logger.info(
-                f"Tool result messages being sent: {tool_result_msgs} | provider={self.name}"
-            )
+            for msg in tool_result_msgs:
+                logger.info(
+                    f"Tool result message: tool_call_id={msg.get('tool_call_id')} | "
+                    f"provider={self.name} | content_length={len(str(msg.get('content', '')))}"
+                )
 
         tools = kwargs.get("tools")
         if tools:
@@ -343,6 +345,17 @@ class OpenAICompatProvider(BaseLLMProvider):
                         data = line[6:]
                         if data == "[DONE]":
                             break
+                        try:
+                            parsed = json.loads(data)
+                            if parsed.get("choices"):
+                                choice = parsed["choices"][0]
+                                tc = choice.get("delta", {}).get("tool_calls")
+                                if tc:
+                                    logger.info(
+                                        f"Streaming tool_calls: {tc} | provider={self.name}"
+                                    )
+                        except json.JSONDecodeError:
+                            pass
                         yield {"event": "message", "data": data}
                     elif line.startswith("error: "):
                         error_data = line[7:]
