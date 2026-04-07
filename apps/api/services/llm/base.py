@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -453,8 +454,6 @@ class AnthropicCompatProvider(BaseLLMProvider):
                                 tool_calls = []
                             tool_call_id = block.get("id", "")
                             if not tool_call_id:
-                                import uuid
-
                                 tool_call_id = f"tool_{tool_call_idx}_{uuid.uuid4().hex[:8]}"
                             tool_calls.append(
                                 {
@@ -631,8 +630,6 @@ class AnthropicCompatProvider(BaseLLMProvider):
                                 tool_call_index = data.get("index", 0)
                                 tc_id = content_block.get("id", "")
                                 if not tc_id:
-                                    import uuid
-
                                     tc_id = f"tool_{tool_call_index}_{uuid.uuid4().hex[:8]}"
                                 current_tool_call = {
                                     "id": tc_id,
