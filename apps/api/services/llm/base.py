@@ -289,6 +289,12 @@ class OpenAICompatProvider(BaseLLMProvider):
         if max_tokens:
             payload["max_tokens"] = max_tokens
 
+        tool_result_msgs = [m for m in messages if m.get("role") == "tool"]
+        if tool_result_msgs:
+            logger.info(
+                f"Tool result messages being sent: {tool_result_msgs} | provider={self.name}"
+            )
+
         tools = kwargs.get("tools")
         if tools:
             transformed_tools = transform_tools_for_provider(tools, self.name)

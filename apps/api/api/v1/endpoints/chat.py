@@ -329,6 +329,11 @@ async def chat_completions(
         if m.tool_call_id is not None:
             msg["tool_call_id"] = m.tool_call_id
         messages.append(msg)
+
+    tool_result_msgs = [m for m in messages if m.get("role") == "tool"]
+    if tool_result_msgs:
+        logger.info(f"Tool result messages received: {tool_result_msgs} | component=chat")
+
     logger.info(
         f"Routing request to model | model={body.model} | messages_count={len(messages)} | component=router"
     )
