@@ -312,7 +312,8 @@ class OpenAICompatProvider(BaseLLMProvider):
                 headers=headers,
             ) as response:
                 if response.status_code != 200:
-                    error_data = await response.json() if response.content else {}
+                    await response.aread()
+                    error_data = json.loads(response.text) if response.content else {}
                     raise ProviderError(
                         message=error_data.get("error", {}).get("message", "Unknown error"),
                         provider=self.name,
@@ -554,7 +555,8 @@ class AnthropicCompatProvider(BaseLLMProvider):
                 headers=headers,
             ) as response:
                 if response.status_code != 200:
-                    error_data = await response.json() if response.content else {}
+                    await response.aread()
+                    error_data = json.loads(response.text) if response.content else {}
                     raise ProviderError(
                         message=error_data.get("error", {}).get("message", str(error_data)),
                         provider=self.name,
