@@ -45,6 +45,13 @@ class CreditsResponse(BaseModel):
     payg_enabled: bool
 
 
+class RequestsResponse(BaseModel):
+    requests_used_today: int
+    requests_limit_today: int
+    requests_remaining: int
+    plan_tier: str
+
+
 class AddCreditsRequest(BaseModel):
     amount: float
     transaction_id: str | None = None
@@ -243,6 +250,38 @@ async def get_credits(
             credits_used=credits_used,
             plan_tier=user.plan_tier.value,
             payg_enabled=False,
+        )
+
+
+@router.get("/user/requests", response_model=RequestsResponse)
+async def get_requests(
+    request: Request,
+):
+    user_id, _ = await get_authenticated_user(request)
+
+    from apps.api.core.config import get_provider_config
+    from apps.api.services.usage.request_manager import RequestManager
+
+    async with get_db_session() as session:
+        result = await session.execute(select(User).where(User.id == UUID(user_id)))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise NotFoundError("User", user_id)
+
+        provider_config = get_provider_config()
+        plan_config = provider_config.get_plan_config(user.plan_tier.value)
+        requests_limit = plan_config.get("requests_per_day", 50) if plan_config else 50
+
+        redis = await get_redis()
+        request_manager = RequestManager(redis)
+        requests_used = await request_manager.get_daily_request_count(user_id)
+
+        return RequestsResponse(
+            requests_used_today=requests_used,
+            requests_limit_today=requests_limit,
+            requests_remaining=max(0, requests_limit - requests_used),
+            plan_tier=user.plan_tier.value,
         )
 
 
