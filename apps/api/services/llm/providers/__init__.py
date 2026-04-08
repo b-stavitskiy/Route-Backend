@@ -12,7 +12,7 @@ class MiniMaxProvider(OpenAICompatProvider):
             name="minimax",
             api_key=os.environ.get("MINIMAX_API_KEY", ""),
             base_url="https://api.minimax.io/v1",
-            timeout=60,
+            timeout=30,
             max_connections=100,
         )
 
@@ -23,7 +23,7 @@ class OpenRouterProvider(OpenAICompatProvider):
             name="openrouter",
             api_key=os.environ.get(api_key_name, ""),
             base_url="https://openrouter.ai/api/v1",
-            timeout=90,
+            timeout=30,
             max_connections=50,
         )
 
@@ -34,7 +34,7 @@ class OpenRouterXiaomiProvider(OpenAICompatProvider):
             name="openrouter_xiaomi",
             api_key=os.environ.get("OPENROUTER_XIAOMI_API_KEY", ""),
             base_url="https://openrouter.ai/api/v1",
-            timeout=90,
+            timeout=30,
             max_connections=50,
         )
 
@@ -45,7 +45,7 @@ class OpenRouterDeepSeekProvider(OpenAICompatProvider):
             name="openrouter_deepseek",
             api_key=os.environ.get("OPENROUTER_DEEPSEEK_API_KEY", ""),
             base_url="https://openrouter.ai/api/v1",
-            timeout=90,
+            timeout=30,
             max_connections=50,
         )
 
@@ -56,7 +56,7 @@ class OpenRouterGrokProvider(OpenAICompatProvider):
             name="openrouter_grok",
             api_key=os.environ.get("OPENROUTER_GROK_API_KEY", ""),
             base_url="https://openrouter.ai/api/v1",
-            timeout=90,
+            timeout=30,
             max_connections=50,
         )
 
@@ -67,7 +67,7 @@ class OpenCodeChatProvider(OpenAICompatProvider):
             name="opencode",
             api_key=os.environ.get("OPENCODE_API_KEY", ""),
             base_url="https://opencode.ai/zen/go/v1",
-            timeout=60,
+            timeout=30,
             max_connections=100,
         )
 
@@ -78,7 +78,7 @@ class OpenCodeMessagesProvider(AnthropicCompatProvider):
             name="opencode",
             api_key=os.environ.get("OPENCODE_API_KEY", ""),
             base_url="https://opencode.ai/zen/go/v1",
-            timeout=60,
+            timeout=30,
             max_connections=100,
         )
 
@@ -89,7 +89,7 @@ class ChutesProvider(OpenAICompatProvider):
             name="chutes",
             api_key=os.environ.get("CHUTES_API_KEY", ""),
             base_url="https://llm.chutes.ai/v1",
-            timeout=60,
+            timeout=30,
             max_connections=100,
         )
 
@@ -100,7 +100,7 @@ class ZAIProvider(OpenAICompatProvider):
             name="zai",
             api_key=os.environ.get("ZAI_API_KEY", ""),
             base_url="https://api.z.ai/api/paas/v4",
-            timeout=60,
+            timeout=30,
             max_connections=100,
         )
 
@@ -111,7 +111,7 @@ class CrofProvider(OpenAICompatProvider):
             name="crof",
             api_key=os.environ.get("CROF_API_KEY", ""),
             base_url="https://crof.ai/v1",
-            timeout=60,
+            timeout=30,
             max_connections=100,
         )
 
@@ -121,7 +121,7 @@ class MiniMaxImageProvider:
         self.name = "minimax_image"
         self.api_key = os.environ.get("MINIMAX_API_KEY", "")
         self.base_url = "https://api.minimax.io/v1"
-        self.timeout = 60
+        self.timeout = 30
         self.max_connections = 100
         self._client: httpx.AsyncClient | None = None
 
@@ -131,7 +131,7 @@ class MiniMaxImageProvider:
                 base_url=self.base_url,
                 timeout=httpx.Timeout(
                     timeout=self.timeout,
-                    connect=5.0,
+                    connect=1.0,
                 ),
                 limits=httpx.Limits(
                     max_connections=self.max_connections,
@@ -225,31 +225,54 @@ PROVIDER_CLASSES = {
     "crof": CrofProvider,
 }
 
+_provider_cache: dict[
+    str, OpenAICompatProvider | AnthropicCompatProvider | MiniMaxImageProvider
+] = {}
+
 
 def get_provider(name: str) -> OpenAICompatProvider | AnthropicCompatProvider:
+    if name in _provider_cache:
+        return _provider_cache[name]
     provider_class = PROVIDER_CLASSES.get(name)
     if not provider_class:
         raise ValueError(f"Unknown provider: {name}")
-    return provider_class()
+    provider_instance = provider_class()
+    _provider_cache[name] = provider_instance
+    return provider_instance
 
 
 def get_provider_for_model(
     provider_name: str, model_id: str
 ) -> OpenAICompatProvider | AnthropicCompatProvider | MiniMaxImageProvider:
+    cache_key = f"{provider_name}:{model_id}"
+    if cache_key in _provider_cache:
+        return _provider_cache[cache_key]
+
+    provider_instance: OpenAICompatProvider | AnthropicCompatProvider | MiniMaxImageProvider
     if provider_name == "opencode":
         if model_id in ["minimax-m2.7", "minimax-m2.5"]:
-            return OpenCodeMessagesProvider()
-        return OpenCodeChatProvider()
-    if provider_name == "openrouter_xiaomi":
-        return OpenRouterXiaomiProvider()
-    if provider_name == "openrouter_deepseek":
-        return OpenRouterDeepSeekProvider()
-    if provider_name == "openrouter_grok":
-        return OpenRouterGrokProvider()
-    if provider_name == "minimax_image":
-        return MiniMaxImageProvider()
-    if provider_name == "openrouter":
+            provider_instance = OpenCodeMessagesProvider()
+        else:
+            provider_instance = OpenCodeChatProvider()
+    elif provider_name == "openrouter_xiaomi":
+        provider_instance = OpenRouterXiaomiProvider()
+    elif provider_name == "openrouter_deepseek":
+        provider_instance = OpenRouterDeepSeekProvider()
+    elif provider_name == "openrouter_grok":
+        provider_instance = OpenRouterGrokProvider()
+    elif provider_name == "minimax_image":
+        provider_instance = MiniMaxImageProvider()
+    elif provider_name == "openrouter":
         if "xiaomi" in model_id.lower():
-            return OpenRouterXiaomiProvider()
-        return OpenRouterProvider()
-    return get_provider(provider_name)
+            provider_instance = OpenRouterXiaomiProvider()
+        elif "deepseek" in model_id.lower():
+            provider_instance = OpenRouterDeepSeekProvider()
+        elif "grok" in model_id.lower():
+            provider_instance = OpenRouterGrokProvider()
+        else:
+            provider_instance = OpenRouterProvider()
+    else:
+        provider_instance = get_provider(provider_name)
+
+    _provider_cache[cache_key] = provider_instance
+    return provider_instance

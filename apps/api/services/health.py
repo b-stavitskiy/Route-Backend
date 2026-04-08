@@ -49,7 +49,7 @@ class HealthCheckService:
 
         return httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
-            timeout=httpx.Timeout(timeout=timeout, connect=5.0),
+            timeout=httpx.Timeout(timeout=10, connect=1.0),
             headers={"Authorization": f"Bearer {api_key}"},
         )
 

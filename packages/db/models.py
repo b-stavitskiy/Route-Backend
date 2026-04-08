@@ -14,7 +14,6 @@ class Base(AsyncAttrs, DeclarativeBase):
 
 class PlanTier(StrEnum):
     FREE = "free"
-    DEV = "dev"
     LITE = "lite"
     PREMIUM = "premium"
     MAX = "max"

@@ -5,6 +5,7 @@ __all__ = [
     "AuthenticationError",
     "AuthorizationError",
     "CircuitBreakerOpenError",
+    "DailyRequestLimitError",
     "DuplicateResourceError",
     "InsufficientCreditsError",
     "InvalidAPIKeyError",
@@ -178,5 +179,23 @@ class InsufficientCreditsError(AppError):
                 "required": required,
                 "available": available,
                 "shortfall": max(0.0, required - available),
+            },
+        )
+
+
+class DailyRequestLimitError(AppError):
+    def __init__(
+        self,
+        limit: int = 0,
+        used: int = 0,
+    ):
+        super().__init__(
+            message="Daily request limit exceeded",
+            status_code=429,
+            error_code="DAILY_REQUEST_LIMIT_EXCEEDED",
+            details={
+                "limit": limit,
+                "used": used,
+                "remaining": max(0, limit - used),
             },
         )

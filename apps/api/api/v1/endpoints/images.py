@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 from apps.api.core.rate_limiter import check_model_access, check_rate_limit
 from apps.api.core.security import hash_api_key, verify_access_token
 from apps.api.services.llm.providers import get_provider_for_model
-from apps.api.services.usage import CreditManager, UsageTracker
+from apps.api.services.usage import UsageTracker
+from apps.api.services.usage.request_manager import RequestManager
 from packages.db.session import get_db_session
 from packages.redis.client import get_redis
 from packages.shared.exceptions import AuthenticationError
@@ -94,6 +95,10 @@ async def generate_image(
     key_hash = hash_api_key(api_key_header) if api_key_header else "default"
     await check_rate_limit(redis, plan, body.model, key_hash)
 
+    request_manager = RequestManager(redis)
+    await request_manager.check_daily_limit(user_id, plan)
+    await request_manager.increment_request_count(user_id)
+
     provider_config_data = {
         "minimax_image": {"provider_chain": [{"provider": "minimax_image", "model_id": "image-01"}]}
     }
@@ -123,12 +128,6 @@ async def generate_image(
             size=body.size,
         )
 
-        credit_manager = CreditManager(redis)
-        actual_cost = await credit_manager.deduct_credits_for_image(
-            user_id=user_id,
-            model=body.model,
-        )
-
         usage_tracker = UsageTracker(redis)
         await usage_tracker.track_image_request(
             user_id=user_id,
@@ -140,7 +139,7 @@ async def generate_image(
 
         logger.info(
             f"Image generated | user={user_id} | model={body.model} | "
-            f"provider={provider_name} | credits={actual_cost} | component=images"
+            f"provider={provider_name} | component=images"
         )
 
         return ImageResponse(
@@ -148,7 +147,7 @@ async def generate_image(
             data=[ImageResult(**img) for img in response.get("data", [])],
             provider=provider_name,
             model=body.model,
-            credits_charged=actual_cost,
+            credits_charged=None,
         )
 
     except Exception as e:

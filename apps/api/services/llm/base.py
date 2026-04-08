@@ -159,7 +159,7 @@ class BaseLLMProvider(ABC):
                 base_url=self.base_url,
                 timeout=httpx.Timeout(
                     timeout=self.timeout,
-                    connect=5.0,
+                    connect=1.0,
                 ),
                 limits=httpx.Limits(
                     max_connections=self.max_connections,

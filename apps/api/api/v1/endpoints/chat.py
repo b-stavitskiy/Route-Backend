@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -12,7 +13,8 @@ from apps.api.core.rate_limiter import check_model_access, check_rate_limit
 from apps.api.core.security import hash_api_key, verify_access_token
 from apps.api.services.llm import LLMRouter
 from apps.api.services.llm.transforms import map_finish_reason, store_streaming_tool_calls
-from apps.api.services.usage import CreditManager, UsageTracker
+from apps.api.services.usage import UsageTracker
+from apps.api.services.usage.request_manager import RequestManager
 from packages.db.models import UsageLog
 from packages.db.session import get_db_session
 from packages.redis.client import get_redis
@@ -74,26 +76,28 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
     if api_key:
         async with get_db_session() as session:
             from sqlalchemy import select
-
             from packages.db.models import ApiKey, User
 
             key_hash = hash_api_key(api_key)
             logger.info(f"get_user_from_request - key_hash: {key_hash}")
+
             result = await session.execute(
-                select(ApiKey).where(
+                select(ApiKey)
+                .where(
                     ApiKey.key_hash == key_hash,
                     ApiKey.is_active,
                 )
+                .options(selectinload(ApiKey.user))
             )
             api_key_obj = result.scalar_one_or_none()
             logger.info(f"get_user_from_request - api_key_obj found: {api_key_obj is not None}")
 
             if api_key_obj:
-                user_result = await session.execute(
-                    select(User).where(User.id == api_key_obj.user_id)
+                current_plan = (
+                    api_key_obj.user.plan_tier.value
+                    if api_key_obj.user
+                    else api_key_obj.plan_tier.value
                 )
-                user = user_result.scalar_one_or_none()
-                current_plan = user.plan_tier.value if user else api_key_obj.plan_tier.value
                 return str(api_key_obj.user_id), current_plan, str(api_key_obj.id)
             else:
                 raise AuthenticationError("Invalid API key")
@@ -115,7 +119,6 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
 
 async def stream_generator(
     router_instance: LLMRouter,
-    credit_manager: CreditManager,
     usage_tracker: UsageTracker,
     model: str,
     messages: list[dict[str, Any]],
@@ -257,13 +260,6 @@ async def stream_generator(
     total_tokens = input_tokens + output_tokens
     if total_tokens > 0:
         try:
-            actual_cost = await credit_manager.deduct_credits(
-                user_id=user_id,
-                model=model,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-            )
-
             await usage_tracker.track_request(
                 user_id=user_id,
                 api_key_id=api_key_id,
@@ -289,7 +285,7 @@ async def stream_generator(
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     total_tokens=total_tokens,
-                    cost_usd=actual_cost,
+                    cost_usd=0.0,
                     latency_ms=latency_ms,
                     status="success",
                     request_id=request_id,
@@ -301,7 +297,7 @@ async def stream_generator(
             logger.info(
                 f"Stream completed | model={model} | provider={provider} | "
                 f"input_tokens={input_tokens} | output_tokens={output_tokens} | "
-                f"latency_ms={latency_ms} | cost={actual_cost} | component=chat"
+                f"latency_ms={latency_ms} | component=chat"
             )
         except Exception as e:
             logger.error(f"Failed to track stream usage: {e} | component=chat")
@@ -314,33 +310,25 @@ async def chat_completions(
 ):
     user_id, plan, api_key_id = await get_user_from_request(request)
 
-    logger.info(
-        f"Chat request | user={user_id} | plan={plan} | model={body.model} | "
-        f"stream={body.stream} | component=chat"
-    )
-
-    logger.info(f"User authenticated | user_id={user_id} | plan={plan} | component=auth")
+    if logger.isEnabledFor(logging.INFO):
+        logger.info(
+            f"Chat request | user={user_id} | plan={plan} | model={body.model} | "
+            f"stream={body.stream} | component=chat"
+        )
 
     await check_model_access(plan, body.model)
-    logger.info(f"Model access granted | model={body.model} | plan={plan} | component=auth")
 
     redis = await get_redis()
     api_key_header = request.headers.get("X-API-Key", "")
     key_hash = hash_api_key(api_key_header) if api_key_header else "default"
-    await check_rate_limit(redis, plan, body.model, key_hash)
-    logger.info(f"Rate limit check passed | model={body.model} | component=ratelimit")
 
-    credit_manager = CreditManager(redis)
-    try:
-        estimated_cost = await credit_manager.check_credits_for_request(
-            user_id=user_id,
-            model=body.model,
-            max_tokens=body.max_tokens,
-        )
-        logger.info(f"Credit check passed | estimated_cost={estimated_cost} | component=credits")
-    except Exception as e:
-        logger.error(f"Credit check failed: {e} | component=credits")
-        raise e
+    request_manager = RequestManager(redis)
+    await asyncio.gather(
+        check_rate_limit(redis, plan, body.model, key_hash),
+        request_manager.check_daily_limit(user_id, plan),
+    )
+
+    await request_manager.increment_request_count(user_id)
 
     router_instance = LLMRouter(redis)
 
@@ -373,7 +361,6 @@ async def chat_completions(
         return StreamingResponse(
             stream_generator(
                 router_instance=router_instance,
-                credit_manager=credit_manager,
                 usage_tracker=usage_tracker,
                 model=body.model,
                 messages=messages,
@@ -425,13 +412,6 @@ async def chat_completions(
         latency_ms=response.get("latency_ms", 0),
     )
 
-    actual_cost = await credit_manager.deduct_credits(
-        user_id=user_id,
-        model=body.model,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-    )
-
     import hashlib
     from uuid import UUID, uuid4
 
@@ -448,7 +428,7 @@ async def chat_completions(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=input_tokens + output_tokens,
-            cost_usd=actual_cost,
+            cost_usd=0.0,
             latency_ms=response.get("latency_ms", 0),
             status="success",
             request_id=request_id,
@@ -457,13 +437,11 @@ async def chat_completions(
         session.add(usage_log)
         await session.commit()
 
-    response["credits_charged"] = actual_cost
-
     logger.info(
         f"Request completed | model={body.model} | "
         f"provider={response.get('provider')} | input_tokens={input_tokens} | "
         f"output_tokens={output_tokens} | latency_ms={response.get('latency_ms')} | "
-        f"cost={actual_cost} | component=chat"
+        f"component=chat"
     )
     logger.info(f"Response body: {response}")
 

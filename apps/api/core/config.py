@@ -258,13 +258,13 @@ class ProviderConfig:
             "free": "free",
             "dev": "free",
             "lite": "lite",
-            "premium": "pro",
+            "premium": "premium",
             "max": "max",
         }
         tier = plan_tier_map.get(user_plan, "free")
         if model in models.get(tier, {}):
             return models[tier][model]
-        for fallback_tier in ["free", "pro", "max"]:
+        for fallback_tier in ["free", "premium", "max"]:
             if model in models.get(fallback_tier, {}):
                 return models[fallback_tier][model]
         return None
