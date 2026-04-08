@@ -76,6 +76,7 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
     if api_key:
         async with get_db_session() as session:
             from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
             from packages.db.models import ApiKey, User
 
             key_hash = hash_api_key(api_key)
