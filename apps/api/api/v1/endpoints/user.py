@@ -1,4 +1,4 @@
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -46,6 +46,8 @@ class UserResponse(BaseModel):
     plan_tier: str
     email_verified: bool
     credits: float = 0.0
+    is_upgraded: bool = False
+    upgrade_expires_at: str | None = None
 
 
 class CreditsResponse(BaseModel):
@@ -96,6 +98,11 @@ async def get_user(
             raise NotFoundError("User", user_id)
 
         effective_tier = get_effective_plan_tier(user)
+        is_upgraded = (
+            user.upgraded_to_tier is not None
+            and user.upgraded_until is not None
+            and user.upgraded_until > datetime.now(UTC)
+        )
         return UserResponse(
             id=str(user.id),
             email=user.email,
@@ -103,6 +110,8 @@ async def get_user(
             plan_tier=effective_tier.value,
             email_verified=user.email_verified,
             credits=user.credits,
+            is_upgraded=is_upgraded,
+            upgrade_expires_at=user.upgraded_until.isoformat() if user.upgraded_until else None,
         )
 
 
