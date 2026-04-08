@@ -47,6 +47,10 @@ class User(Base):
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    upgraded_to_tier: Mapped[PlanTier | None] = mapped_column(Enum(PlanTier), nullable=True)
+    upgraded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    upgraded_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     api_keys: Mapped[list["ApiKey"]] = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan"
     )

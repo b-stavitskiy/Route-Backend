@@ -3,6 +3,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -94,11 +95,16 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
             logger.info(f"get_user_from_request - api_key_obj found: {api_key_obj is not None}")
 
             if api_key_obj:
-                current_plan = (
-                    api_key_obj.user.plan_tier.value
-                    if api_key_obj.user
-                    else api_key_obj.plan_tier.value
-                )
+                user = api_key_obj.user
+                if user and user.upgraded_to_tier and user.upgraded_until:
+                    from datetime import UTC
+
+                    if user.upgraded_until > datetime.now(UTC):
+                        current_plan = user.upgraded_to_tier.value
+                    else:
+                        current_plan = user.plan_tier.value
+                else:
+                    current_plan = user.plan_tier.value if user else api_key_obj.plan_tier.value
                 return str(api_key_obj.user_id), current_plan, str(api_key_obj.id)
             else:
                 raise AuthenticationError("Invalid API key")

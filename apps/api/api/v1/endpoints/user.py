@@ -20,6 +20,17 @@ from sqlalchemy import select
 router = APIRouter(prefix="/v1", tags=["user"])
 
 
+def get_effective_plan_tier(user: User) -> PlanTier:
+
+    if (
+        user.upgraded_to_tier is not None
+        and user.upgraded_until is not None
+        and user.upgraded_until > datetime.now(UTC)
+    ):
+        return user.upgraded_to_tier
+    return user.plan_tier
+
+
 class UsageResponse(BaseModel):
     total_requests: int = 0
     total_input_tokens: int = 0
@@ -84,11 +95,12 @@ async def get_user(
         if not user:
             raise NotFoundError("User", user_id)
 
+        effective_tier = get_effective_plan_tier(user)
         return UserResponse(
             id=str(user.id),
             email=user.email,
             name=user.name,
-            plan_tier=user.plan_tier.value,
+            plan_tier=effective_tier.value,
             email_verified=user.email_verified,
             credits=user.credits,
         )
@@ -138,7 +150,7 @@ async def create_api_key(
         if not user:
             raise NotFoundError("User", user_id)
 
-        plan_tier = user.plan_tier
+        plan_tier = get_effective_plan_tier(user)
 
         key, key_hash = generate_api_key()
         prefix = key[:8]
@@ -237,7 +249,8 @@ async def get_credits(
             raise NotFoundError("User", user_id)
 
         provider_config = get_provider_config()
-        plan_config = provider_config.get_plan_config(user.plan_tier.value)
+        effective_tier = get_effective_plan_tier(user)
+        plan_config = provider_config.get_plan_config(effective_tier.value)
         credits_monthly = plan_config.get("credits_monthly", 0.0) if plan_config else 0.0
 
         redis = await get_redis()
@@ -248,7 +261,7 @@ async def get_credits(
             credits=user.credits,
             credits_monthly=credits_monthly,
             credits_used=credits_used,
-            plan_tier=user.plan_tier.value,
+            plan_tier=effective_tier.value,
             payg_enabled=False,
         )
 
@@ -270,7 +283,8 @@ async def get_requests(
             raise NotFoundError("User", user_id)
 
         provider_config = get_provider_config()
-        plan_config = provider_config.get_plan_config(user.plan_tier.value)
+        effective_tier = get_effective_plan_tier(user)
+        plan_config = provider_config.get_plan_config(effective_tier.value)
         requests_limit = plan_config.get("requests_per_day", 50) if plan_config else 50
 
         redis = await get_redis()
@@ -281,7 +295,7 @@ async def get_requests(
             requests_used_today=requests_used,
             requests_limit_today=requests_limit,
             requests_remaining=max(0, requests_limit - requests_used),
-            plan_tier=user.plan_tier.value,
+            plan_tier=effective_tier.value,
         )
 
 

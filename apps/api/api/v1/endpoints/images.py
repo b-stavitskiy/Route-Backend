@@ -59,18 +59,31 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
             from sqlalchemy import select
 
             from packages.db.models import ApiKey
+            from sqlalchemy.orm import selectinload
 
             key_hash = hash_api_key(api_key)
             result = await session.execute(
-                select(ApiKey).where(
+                select(ApiKey)
+                .where(
                     ApiKey.key_hash == key_hash,
                     ApiKey.is_active,
                 )
+                .options(selectinload(ApiKey.user))
             )
             api_key_obj = result.scalar_one_or_none()
 
             if api_key_obj:
-                return str(api_key_obj.user_id), api_key_obj.plan_tier.value, str(api_key_obj.id)
+                user = api_key_obj.user
+                if user and user.upgraded_to_tier and user.upgraded_until:
+                    from datetime import UTC, datetime
+
+                    if user.upgraded_until > datetime.now(UTC):
+                        plan = user.upgraded_to_tier.value
+                    else:
+                        plan = user.plan_tier.value
+                else:
+                    plan = user.plan_tier.value if user else api_key_obj.plan_tier.value
+                return str(api_key_obj.user_id), plan, str(api_key_obj.id)
             else:
                 raise AuthenticationError("Invalid API key")
 
