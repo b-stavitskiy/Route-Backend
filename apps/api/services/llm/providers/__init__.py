@@ -111,7 +111,7 @@ class CrofProvider(OpenAICompatProvider):
             name="crof",
             api_key=os.environ.get("CROF_API_KEY", ""),
             base_url="https://crof.ai/v1",
-            timeout=0,
+            timeout=300,
             max_connections=100,
         )
 
