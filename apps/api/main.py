@@ -191,22 +191,23 @@ def create_app() -> FastAPI:
             "/auth",
         ]
         if any(request.url.path.startswith(path) for path in ai_paths):
-            origin = request.headers.get("origin", "*")
+            origin = request.headers.get("origin")
             if request.method == "OPTIONS":
                 from fastapi.responses import Response
 
+                allow_headers = request.headers.get("access-control-request-headers", "*")
                 return Response(
                     status_code=200,
                     headers={
-                        "Access-Control-Allow-Origin": origin,
+                        "Access-Control-Allow-Origin": origin or "*",
                         "Access-Control-Allow-Credentials": "true",
                         "Access-Control-Allow-Methods": "*",
-                        "Access-Control-Allow-Headers": "*",
+                        "Access-Control-Allow-Headers": allow_headers,
                     },
                 )
             response = await call_next(request)
             if hasattr(response, "headers"):
-                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Origin"] = origin or "*"
                 response.headers["Access-Control-Allow-Credentials"] = "true"
             return response
         return await call_next(request)
