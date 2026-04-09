@@ -3,10 +3,8 @@ from apps.api.core.middleware import (
     AuthMiddleware,
     ExceptionHandlerMiddleware,
     MetricsMiddleware,
-    RateLimitMiddleware,
 )
 from apps.api.core.rate_limiter import (
-    PlanRateLimiter,
     check_model_access,
     check_rate_limit,
 )
@@ -40,11 +38,9 @@ __all__ = [
     "verify_password",
     "verify_access_token",
     "verify_refresh_token",
-    "PlanRateLimiter",
     "check_model_access",
     "check_rate_limit",
     "AuthMiddleware",
     "ExceptionHandlerMiddleware",
     "MetricsMiddleware",
-    "RateLimitMiddleware",
 ]
