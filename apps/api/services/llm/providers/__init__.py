@@ -12,7 +12,7 @@ class MiniMaxProvider(OpenAICompatProvider):
             name="minimax",
             api_key=os.environ.get("MINIMAX_API_KEY", ""),
             base_url="https://api.minimax.io/v1",
-            timeout=30,
+            timeout=300,
             max_connections=100,
         )
 
@@ -23,7 +23,7 @@ class OpenRouterProvider(OpenAICompatProvider):
             name="openrouter",
             api_key=os.environ.get(api_key_name, ""),
             base_url="https://openrouter.ai/api/v1",
-            timeout=30,
+            timeout=300,
             max_connections=50,
         )
 
@@ -34,7 +34,7 @@ class OpenRouterXiaomiProvider(OpenAICompatProvider):
             name="openrouter_xiaomi",
             api_key=os.environ.get("OPENROUTER_XIAOMI_API_KEY", ""),
             base_url="https://openrouter.ai/api/v1",
-            timeout=30,
+            timeout=300,
             max_connections=50,
         )
 
@@ -45,7 +45,7 @@ class OpenRouterDeepSeekProvider(OpenAICompatProvider):
             name="openrouter_deepseek",
             api_key=os.environ.get("OPENROUTER_DEEPSEEK_API_KEY", ""),
             base_url="https://openrouter.ai/api/v1",
-            timeout=30,
+            timeout=300,
             max_connections=50,
         )
 
@@ -56,7 +56,7 @@ class OpenRouterGrokProvider(OpenAICompatProvider):
             name="openrouter_grok",
             api_key=os.environ.get("OPENROUTER_GROK_API_KEY", ""),
             base_url="https://openrouter.ai/api/v1",
-            timeout=30,
+            timeout=300,
             max_connections=50,
         )
 
@@ -67,7 +67,7 @@ class OpenCodeChatProvider(OpenAICompatProvider):
             name="opencode",
             api_key=os.environ.get("OPENCODE_API_KEY", ""),
             base_url="https://opencode.ai/zen/go/v1",
-            timeout=30,
+            timeout=300,
             max_connections=100,
         )
 
@@ -78,7 +78,7 @@ class OpenCodeMessagesProvider(AnthropicCompatProvider):
             name="opencode",
             api_key=os.environ.get("OPENCODE_API_KEY", ""),
             base_url="https://opencode.ai/zen/go/v1",
-            timeout=30,
+            timeout=300,
             max_connections=100,
         )
 
@@ -89,7 +89,7 @@ class ChutesProvider(OpenAICompatProvider):
             name="chutes",
             api_key=os.environ.get("CHUTES_API_KEY", ""),
             base_url="https://llm.chutes.ai/v1",
-            timeout=30,
+            timeout=300,
             max_connections=100,
         )
 
@@ -100,7 +100,7 @@ class ZAIProvider(OpenAICompatProvider):
             name="zai",
             api_key=os.environ.get("ZAI_API_KEY", ""),
             base_url="https://api.z.ai/api/paas/v4",
-            timeout=30,
+            timeout=300,
             max_connections=100,
         )
 
