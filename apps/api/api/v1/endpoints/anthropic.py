@@ -18,7 +18,8 @@ router = APIRouter(prefix="/v1", tags=["anthropic"])
 
 class AnthropicMessage(BaseModel):
     role: str
-    content: str
+    content: str | list[dict]
+    tool_call_id: str | None = None
 
 
 class AnthropicContentBlock(BaseModel):
