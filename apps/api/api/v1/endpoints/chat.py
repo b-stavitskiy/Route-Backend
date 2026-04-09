@@ -3,7 +3,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from apps.api.core.rate_limiter import check_model_access, check_rate_limit
 from apps.api.core.security import hash_api_key, verify_access_token
 from apps.api.services.llm import LLMRouter
+from apps.api.services.llm.router import truncate_messages
 from apps.api.services.llm.transforms import map_finish_reason, store_streaming_tool_calls
 from apps.api.services.usage import UsageTracker
 from apps.api.services.usage.request_manager import RequestManager
@@ -78,7 +79,8 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
         async with get_db_session() as session:
             from sqlalchemy import select
             from sqlalchemy.orm import selectinload
-            from packages.db.models import ApiKey, User
+
+            from packages.db.models import ApiKey
 
             key_hash = hash_api_key(api_key)
             logger.info(f"get_user_from_request - key_hash: {key_hash}")
@@ -308,6 +310,12 @@ async def stream_generator(
             )
         except Exception as e:
             logger.error(f"Failed to track stream usage: {e} | component=chat")
+    else:
+        logger.warning(
+            f"Stream completed with zero tokens (usage not tracked) | model={model} | "
+            f"provider={provider} | chunks_yielded_estimate=unknown | latency_ms={latency_ms} | "
+            f"component=chat"
+        )
 
 
 @router.post("/chat/completions")
@@ -362,6 +370,17 @@ async def chat_completions(
         f"Routing request to model | model={body.model} | "
         f"messages_count={len(messages)} | component=router"
     )
+
+    original_msg_count = len(messages)
+    messages = truncate_messages(messages, max_messages=20)
+    if len(messages) < original_msg_count:
+        logger.info(
+            f"Truncated messages from {original_msg_count} to {len(messages)} | component=router"
+        )
+
+    max_tokens = body.max_tokens
+    if max_tokens is None or max_tokens > 32768:
+        max_tokens = 32768
 
     if body.stream:
         usage_tracker = UsageTracker(redis)

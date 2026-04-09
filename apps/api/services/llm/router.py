@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 from collections.abc import AsyncGenerator
@@ -21,6 +22,31 @@ from packages.shared.exceptions import (
 )
 
 logger = logging.getLogger("routing.run.router")
+
+MAX_MESSAGES = 20
+
+
+def truncate_messages(
+    messages: list[dict[str, Any]], max_messages: int = MAX_MESSAGES
+) -> list[dict[str, Any]]:
+    if len(messages) <= max_messages:
+        return messages
+
+    system_msgs = [m for m in messages if m.get("role") == "system"]
+    other_msgs = [m for m in messages if m.get("role") != "system"]
+
+    keep_count = max_messages - len(system_msgs)
+    if keep_count < 1:
+        keep_count = 1
+
+    truncated = system_msgs + other_msgs[-keep_count:]
+
+    if len(truncated) < len(messages):
+        logger.warning(
+            f"Truncated messages from {len(messages)} to {len(truncated)} | component=router"
+        )
+
+    return truncated
 
 
 def sanitize_response(response: dict[str, Any]) -> dict[str, Any]:
@@ -311,7 +337,16 @@ class LLMRouter:
                     )
 
                     first_chunk = True
+                    chunks_yielded = 0
+                    last_chunk_time = time.time()
+                    chunk_timeout_seconds = 60
+
                     async for chunk in stream_gen:
+                        try:
+                            await asyncio.wait_for(asyncio.sleep(0), timeout=chunk_timeout_seconds)
+                        except TimeoutError:
+                            pass
+
                         if first_chunk:
                             latency_ms = int((time.time() - start_time) * 1000)
                             self.circuit_breaker.record_success(provider_name)
@@ -322,44 +357,92 @@ class LLMRouter:
                                 f"model={model_id} | first_chunk_latency_ms={latency_ms}",
                             )
 
+                        last_chunk_time = time.time()
+                        chunks_yielded += 1
+
+                        data = chunk.get("data", {})
+                        if isinstance(data, str):
+                            try:
+                                data = json.loads(data)
+                            except json.JSONDecodeError:
+                                pass
+
+                        if isinstance(data, dict) and "choices" in data:
+                            for choice in data.get("choices", []):
+                                if "delta" in choice and "content" in choice["delta"]:
+                                    content = choice["delta"]["content"]
+                                    if isinstance(content, str):
+                                        choice["delta"]["content"] = (
+                                            content.replace("\r", "\\r")
+                                            .replace("\n", "\\n")
+                                            .replace("\t", "\\t")
+                                        )
+
                         chunk["request_id"] = request_id
                         chunk["provider"] = provider_name
                         if user_id:
                             chunk["user_id"] = user_id
                         yield chunk
 
-                    logger.info(
-                        f"Stream completed | provider={provider_name} | model={model_id}",
-                    )
+                    if chunks_yielded > 0:
+                        idle_time = time.time() - last_chunk_time
+                        logger.info(
+                            f"Stream completed | provider={provider_name} | "
+                            f"model={model_id} | chunks_yielded={chunks_yielded} | "
+                            f"idle_before_done_sec={idle_time:.1f}",
+                        )
                     return
+
+                except TimeoutError as e:
+                    last_error = ProviderTimeoutError(
+                        f"Stream stalled (no data for {chunk_timeout_seconds}s)",
+                        provider=provider_name,
+                        timeout=chunk_timeout_seconds,
+                    )
+                    if chunks_yielded > 0:
+                        logger.warning(
+                            f"Stream partial failure (stalled) | provider={provider_name} | "
+                            f"model={model_id} | chunks_yielded={chunks_yielded} | error={e}",
+                        )
+                    self.circuit_breaker.record_failure(provider_name)
+                    await self._update_provider_health(provider_name, 0, True)
+                    continue
 
                 except ProviderTimeoutError as e:
                     last_error = e
+                    if chunks_yielded > 0:
+                        logger.warning(
+                            f"Stream partial failure | provider={provider_name} | "
+                            f"model={model_id} | chunks_yielded={chunks_yielded} | error={e}",
+                        )
                     self.circuit_breaker.record_failure(provider_name)
                     await self._update_provider_health(provider_name, 0, True)
-                    logger.warning(
-                        f"Stream provider timeout | provider={provider_name} | "
-                        f"model={model_id} | error={e}",
-                    )
                     continue
 
                 except ProviderError as e:
                     last_error = e
+                    if chunks_yielded > 0:
+                        logger.warning(
+                            f"Stream partial failure | provider={provider_name} | "
+                            f"model={model_id} | chunks_yielded={chunks_yielded} | error={e}",
+                        )
                     self.circuit_breaker.record_failure(provider_name)
                     await self._update_provider_health(provider_name, 0, True)
-                    logger.warning(
-                        f"Stream provider error | provider={provider_name} | "
-                        f"model={model_id} | error={e}",
-                    )
                     continue
 
                 except Exception as e:
                     last_error = e
+                    if chunks_yielded > 0:
+                        logger.warning(
+                            f"Stream partial failure | provider={provider_name} | "
+                            f"model={model_id} | chunks_yielded={chunks_yielded} | error={e}",
+                        )
+                    else:
+                        logger.error(
+                            f"Stream unexpected error | provider={provider_name} | "
+                            f"model={model_id} | error={e}",
+                        )
                     self.circuit_breaker.record_failure(provider_name)
-                    logger.error(
-                        f"Stream unexpected error | provider={provider_name} | "
-                        f"model={model_id} | error={e}",
-                    )
                     continue
 
             if attempt < retry_count:
