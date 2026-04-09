@@ -29,7 +29,7 @@ class AnthropicContentBlock(BaseModel):
 class AnthropicMessagesRequest(BaseModel):
     model: str
     messages: list[AnthropicMessage]
-    max_tokens: int = Field(default=1024, ge=1, le=4096)
+    max_tokens: int = Field(default=1024, ge=1)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
     system: str | None = None
