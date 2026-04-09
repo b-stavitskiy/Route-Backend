@@ -182,7 +182,14 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def add_cors_for_ai_endpoints(request, call_next):
-        ai_paths = ["/v1/chat", "/v1/images", "/v1/anthropic", "/v1/models", "/v1/messages"]
+        ai_paths = [
+            "/v1/chat",
+            "/v1/images",
+            "/v1/anthropic",
+            "/v1/models",
+            "/v1/messages",
+            "/auth",
+        ]
         if any(request.url.path.startswith(path) for path in ai_paths):
             if request.method == "OPTIONS":
                 from fastapi.responses import Response
