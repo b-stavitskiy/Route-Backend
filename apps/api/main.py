@@ -175,14 +175,14 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     @app.middleware("http")
     async def add_cors_for_ai_endpoints(request, call_next):
-        ai_paths = ["/v1/chat", "/v1/images", "/v1/anthropic"]
+        ai_paths = ["/v1/chat", "/v1/images", "/v1/anthropic", "/v1/models", "/v1/messages"]
         if any(request.url.path.startswith(path) for path in ai_paths):
             if request.method == "OPTIONS":
                 from fastapi.responses import Response
@@ -196,7 +196,8 @@ def create_app() -> FastAPI:
                     },
                 )
             response = await call_next(request)
-            response.headers["Access-Control-Allow-Origin"] = "*"
+            if hasattr(response, "headers"):
+                response.headers["Access-Control-Allow-Origin"] = "*"
             return response
         return await call_next(request)
 

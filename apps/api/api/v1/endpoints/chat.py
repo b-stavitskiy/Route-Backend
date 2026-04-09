@@ -407,6 +407,9 @@ async def chat_completions(
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Request-ID": f"chatcmpl-{int(time.time() * 1000)}",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
             },
         )
 
