@@ -188,6 +188,7 @@ def create_app() -> FastAPI:
             "/v1/anthropic",
             "/v1/models",
             "/v1/messages",
+            "/v1/user",
             "/auth",
         ]
         if any(request.url.path.startswith(path) for path in ai_paths):
