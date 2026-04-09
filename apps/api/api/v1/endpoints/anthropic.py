@@ -33,7 +33,7 @@ class AnthropicMessagesRequest(BaseModel):
     max_tokens: int = Field(default=1024, ge=1)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
-    system: str | None = None
+    system: str | list[dict] | None = None
     stop_sequences: list[str] | None = None
 
 
@@ -93,12 +93,27 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
     raise AuthenticationError("Authentication required")
 
 
-def convert_to_openai_format(messages: list[dict], system: str | None) -> list[dict]:
+def extract_text_from_content(content: str | list[dict]) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text_parts.append(block.get("text", ""))
+        return "\n".join(text_parts)
+    return str(content)
+
+
+def convert_to_openai_format(messages: list[dict], system: str | list[dict] | None) -> list[dict]:
     result = []
     if system:
-        result.append({"role": "system", "content": system})
+        system_text = extract_text_from_content(system)
+        result.append({"role": "system", "content": system_text})
     for msg in messages:
-        result.append({"role": msg["role"], "content": msg["content"]})
+        content = msg.get("content", "")
+        content_text = extract_text_from_content(content)
+        result.append({"role": msg["role"], "content": content_text})
     return result
 
 
