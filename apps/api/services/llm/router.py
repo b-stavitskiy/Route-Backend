@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import uuid4
 
+import tiktoken
 from redis.asyncio import Redis
 
 from apps.api.core.config import get_provider_config
@@ -24,29 +25,89 @@ from packages.shared.exceptions import (
 logger = logging.getLogger("routing.run.router")
 
 MAX_MESSAGES = 20
+MAX_TOKENS = 15000
+
+_encoders: dict[str, Any] = {}
+
+
+def _get_encoder() -> Any:
+    try:
+        model = "cl100k_base"
+        if model not in _encoders:
+            _encoders[model] = tiktoken.get_encoding(model)
+        return _encoders[model]
+    except Exception:
+        return None
+
+
+def _count_tokens(text: str) -> int:
+    encoder = _get_encoder()
+    if encoder is None:
+        return len(text) // 4
+    try:
+        return len(encoder.encode(text or ""))
+    except Exception:
+        return len(text) // 4
+
+
+def _count_message_tokens(msg: dict[str, Any]) -> int:
+    base = 3
+    base += _count_tokens(msg.get("role", ""))
+    base += _count_tokens(msg.get("content", ""))
+    if msg.get("tool_call_id"):
+        base += _count_tokens(msg.get("tool_call_id", ""))
+    tc = msg.get("tool_calls", [])
+    if tc:
+        base += 3
+        for t in tc:
+            if isinstance(t, dict):
+                base += _count_tokens(t.get("id", ""))
+                base += _count_tokens(t.get("function", {}).get("name", ""))
+                base += _count_tokens(t.get("function", {}).get("arguments", ""))
+    return base
 
 
 def truncate_messages(
-    messages: list[dict[str, Any]], max_messages: int = MAX_MESSAGES
+    messages: list[dict[str, Any]], max_messages: int = MAX_MESSAGES, max_tokens: int = MAX_TOKENS
 ) -> list[dict[str, Any]]:
-    if len(messages) <= max_messages:
+    if not messages:
+        return messages
+
+    total_tokens = sum(_count_message_tokens(m) for m in messages)
+    if len(messages) <= max_messages and total_tokens <= max_tokens:
         return messages
 
     system_msgs = [m for m in messages if m.get("role") == "system"]
     other_msgs = [m for m in messages if m.get("role") != "system"]
 
-    keep_count = max_messages - len(system_msgs)
-    if keep_count < 1:
-        keep_count = 1
+    system_tokens = sum(_count_message_tokens(m) for m in system_msgs)
+    available_tokens = max_tokens - system_tokens
+    available_messages = max_messages - len(system_msgs)
 
-    truncated = system_msgs + other_msgs[-keep_count:]
+    if available_messages < 1:
+        available_messages = 1
+    if available_tokens < 100:
+        available_tokens = 100
 
-    if len(truncated) < len(messages):
+    kept_msgs = list(system_msgs)
+    kept_tokens = system_tokens
+
+    for msg in reversed(other_msgs):
+        msg_tokens = _count_message_tokens(msg)
+        if len(kept_msgs) >= max_messages:
+            break
+        if kept_tokens + msg_tokens > available_tokens and kept_msgs:
+            break
+        kept_msgs.insert(len(system_msgs), msg)
+        kept_tokens += msg_tokens
+
+    if len(kept_msgs) < len(messages) or total_tokens > max_tokens:
         logger.warning(
-            f"Truncated messages from {len(messages)} to {len(truncated)} | component=router"
+            f"Truncated {len(messages)} msgs / ~{total_tokens} tokens -> "
+            f"{len(kept_msgs)} msgs / ~{kept_tokens} tokens | component=router"
         )
 
-    return truncated
+    return kept_msgs
 
 
 def sanitize_response(response: dict[str, Any]) -> dict[str, Any]:
