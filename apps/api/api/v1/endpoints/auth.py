@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, field_validator
 
 from apps.api.core.config import get_settings
-from apps.api.core.otp import generate_otp, store_otp, verify_otp
+
 from apps.api.core.security import (
     blacklist_refresh_token,
     blacklist_token,
@@ -25,8 +25,7 @@ from apps.api.services.auth_service import AuthService
 from apps.api.services.email.service import get_email_service
 from packages.db.models import Session
 from packages.db.session import get_db, get_db_session
-from packages.redis import RateLimiter, get_redis
-from packages.shared.exceptions import AuthenticationError, DuplicateResourceError, RateLimitError
+from packages.shared.exceptions import AuthenticationError, DuplicateResourceError
 
 
 async def create_session(
@@ -58,22 +57,6 @@ async def create_session(
             await new_session.commit()
 
     return session
-
-
-async def check_otp_rate_limit(email: str, purpose: str) -> None:
-    redis = await get_redis()
-    limiter = RateLimiter(redis)
-    key = f"otp_rate:{purpose}:{email}"
-    allowed, remaining, retry_after = await limiter.check_rate_limit(
-        key=key,
-        limit=5,
-        window_seconds=60,
-    )
-    if not allowed:
-        raise RateLimitError(
-            message=f"Too many OTP requests. Wait {retry_after} seconds before trying again.",
-            retry_after=retry_after,
-        )
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -160,6 +143,11 @@ class LoginVerifyRequest(BaseModel):
     otp: str
 
 
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
@@ -200,21 +188,7 @@ async def signup_init(
     fastapi_request: Request,
     db=Depends(get_db),
 ):
-    await check_otp_rate_limit(request.email, "signup")
-
-    async with get_db_session() as session:
-        auth_service = AuthService(session)
-        existing = await auth_service.get_user_by_email(request.email)
-        if existing:
-            raise AuthenticationError("Email already registered")
-
-    otp = generate_otp()
-    await store_otp(request.email, otp, "signup")
-
-    email_service = get_email_service()
-    await email_service.send_otp(request.email, otp, "signup")
-
-    return MessageResponse(message="OTP sent to email")
+    raise AuthenticationError("Signup is disabled. Please use GitHub OAuth.")
 
 
 @router.post("/signup/verify")
@@ -223,10 +197,7 @@ async def signup_verify(
     response: Response,
     db=Depends(get_db),
 ):
-    if not await verify_otp(request.email, request.otp, "signup"):
-        raise AuthenticationError("Invalid or expired OTP")
-
-    async with get_db_session() as session:
+    raise AuthenticationError("Signup is disabled. Please use GitHub OAuth.")
         auth_service = AuthService(session)
 
         try:
@@ -288,21 +259,7 @@ async def login_init(
     fastapi_request: Request,
     db=Depends(get_db),
 ):
-    await check_otp_rate_limit(request.email, "login")
-
-    async with get_db_session() as session:
-        auth_service = AuthService(session)
-        user = await auth_service.authenticate_user(request.email, request.password)
-        if not user:
-            raise AuthenticationError("Invalid email or password")
-
-    otp = generate_otp()
-    await store_otp(request.email, otp, "login")
-
-    email_service = get_email_service()
-    await email_service.send_otp(request.email, otp, "login")
-
-    return MessageResponse(message="OTP sent to email")
+    raise AuthenticationError("Login with email/password is disabled. Please use GitHub OAuth.")
 
 
 @router.post("/login/verify")
@@ -311,10 +268,7 @@ async def login_verify(
     response: Response,
     db=Depends(get_db),
 ):
-    if not await verify_otp(request.email, request.otp, "login"):
-        raise AuthenticationError("Invalid or expired OTP")
-
-    async with get_db_session() as session:
+    raise AuthenticationError("Login with email/password is disabled. Please use GitHub OAuth.")
         auth_service = AuthService(session)
         user = await auth_service.get_user_by_email(request.email)
         if not user:
@@ -367,10 +321,7 @@ async def signup(
     response: Response,
     db=Depends(get_db),
 ):
-    if not await verify_otp(request.email, request.otp, "signup"):
-        raise AuthenticationError("Invalid or expired OTP")
-
-    async with get_db_session() as session:
+    raise AuthenticationError("Signup is disabled. Please use GitHub OAuth.")
         auth_service = AuthService(session)
 
         try:
@@ -428,18 +379,15 @@ async def signup(
 
 @router.post("/login")
 async def login(
-    request: LoginVerifyRequest,
+    request: LoginRequest,
     response: Response,
     db=Depends(get_db),
 ):
-    if not await verify_otp(request.email, request.otp, "login"):
-        raise AuthenticationError("Invalid or expired OTP")
-
     async with get_db_session() as session:
         auth_service = AuthService(session)
-        user = await auth_service.get_user_by_email(request.email)
+        user = await auth_service.authenticate_user(request.email, request.password)
         if not user:
-            raise AuthenticationError("User not found")
+            raise AuthenticationError("Invalid email or password")
 
         access_token = create_access_token(
             subject=str(user.id),
