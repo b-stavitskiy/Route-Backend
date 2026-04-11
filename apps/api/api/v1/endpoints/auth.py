@@ -198,59 +198,6 @@ async def signup_verify(
     db=Depends(get_db),
 ):
     raise AuthenticationError("Signup is disabled. Please use GitHub OAuth.")
-        auth_service = AuthService(session)
-
-        try:
-            user = await auth_service.create_user(
-                email=request.email,
-                password=request.password,
-                name=request.name,
-            )
-        except DuplicateResourceError:
-            raise AuthenticationError("Email already registered")
-
-        access_token = create_access_token(
-            subject=str(user.id),
-            additional_claims={"plan": user.plan_tier.value},
-        )
-        refresh_token = create_refresh_token(subject=str(user.id))
-        await create_session(user.id, refresh_token, db_session=session)
-
-        csrf_token = generate_csrf_token()
-        try:
-            await store_csrf_token(csrf_token, str(user.id))
-        except Exception:
-            pass
-
-        cookies = create_auth_cookies(access_token, refresh_token)
-        for cookie_name, cookie_params in cookies.items():
-            response.set_cookie(**cookie_params)
-        response.set_cookie(
-            key=CSRF_TOKEN_COOKIE,
-            value=csrf_token,
-            domain=COOKIE_DOMAIN,
-            secure=COOKIE_SECURE,
-            httponly=False,
-            samesite=COOKIE_SAMESITE,
-            max_age=3600,
-            path="/",
-        )
-
-        email_service = get_email_service()
-        await email_service.send_welcome(user.email, user.name)
-
-        return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "csrf_token": csrf_token,
-            "user": {
-                "id": str(user.id),
-                "email": user.email,
-                "name": user.name,
-                "plan_tier": user.plan_tier.value,
-                "email_verified": user.email_verified,
-            },
-        }
 
 
 @router.post("/login/init", response_model=MessageResponse)
@@ -269,50 +216,6 @@ async def login_verify(
     db=Depends(get_db),
 ):
     raise AuthenticationError("Login with email/password is disabled. Please use GitHub OAuth.")
-        auth_service = AuthService(session)
-        user = await auth_service.get_user_by_email(request.email)
-        if not user:
-            raise AuthenticationError("User not found")
-
-        access_token = create_access_token(
-            subject=str(user.id),
-            additional_claims={"plan": user.plan_tier.value},
-        )
-        refresh_token = create_refresh_token(subject=str(user.id))
-        await create_session(user.id, refresh_token, db_session=session)
-
-        csrf_token = generate_csrf_token()
-        try:
-            await store_csrf_token(csrf_token, str(user.id))
-        except Exception:
-            pass
-
-        cookies = create_auth_cookies(access_token, refresh_token)
-        for cookie_name, cookie_params in cookies.items():
-            response.set_cookie(**cookie_params)
-        response.set_cookie(
-            key=CSRF_TOKEN_COOKIE,
-            value=csrf_token,
-            domain=COOKIE_DOMAIN,
-            secure=COOKIE_SECURE,
-            httponly=False,
-            samesite=COOKIE_SAMESITE,
-            max_age=3600,
-            path="/",
-        )
-
-        return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "csrf_token": csrf_token,
-            "user": {
-                "id": str(user.id),
-                "email": user.email,
-                "name": user.name,
-                "plan_tier": user.plan_tier.value,
-                "email_verified": user.email_verified,
-            },
-        }
 
 
 @router.post("/signup")
@@ -322,59 +225,6 @@ async def signup(
     db=Depends(get_db),
 ):
     raise AuthenticationError("Signup is disabled. Please use GitHub OAuth.")
-        auth_service = AuthService(session)
-
-        try:
-            user = await auth_service.create_user(
-                email=request.email,
-                password=request.password,
-                name=request.name,
-            )
-        except DuplicateResourceError:
-            raise AuthenticationError("Email already registered")
-
-        access_token = create_access_token(
-            subject=str(user.id),
-            additional_claims={"plan": user.plan_tier.value},
-        )
-        refresh_token = create_refresh_token(subject=str(user.id))
-        await create_session(user.id, refresh_token, db_session=session)
-
-        csrf_token = generate_csrf_token()
-        try:
-            await store_csrf_token(csrf_token, str(user.id))
-        except Exception:
-            pass
-
-        cookies = create_auth_cookies(access_token, refresh_token)
-        for cookie_name, cookie_params in cookies.items():
-            response.set_cookie(**cookie_params)
-        response.set_cookie(
-            key=CSRF_TOKEN_COOKIE,
-            value=csrf_token,
-            domain=COOKIE_DOMAIN,
-            secure=COOKIE_SECURE,
-            httponly=False,
-            samesite=COOKIE_SAMESITE,
-            max_age=3600,
-            path="/",
-        )
-
-        email_service = get_email_service()
-        await email_service.send_welcome(user.email, user.name)
-
-        return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "csrf_token": csrf_token,
-            "user": {
-                "id": str(user.id),
-                "email": user.email,
-                "name": user.name,
-                "plan_tier": user.plan_tier.value,
-                "email_verified": user.email_verified,
-            },
-        }
 
 
 @router.post("/login")
