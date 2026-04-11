@@ -21,7 +21,6 @@ from apps.api.core.security import (
     verify_oauth_state,
     verify_refresh_token,
 )
-from apps.api.core.turnstile import verify_turnstile
 from apps.api.services.auth_service import AuthService
 from apps.api.services.email.service import get_email_service
 from packages.db.models import Session
@@ -203,13 +202,6 @@ async def signup_init(
 ):
     await check_otp_rate_limit(request.email, "signup")
 
-    from apps.api.core.middleware import get_client_ip
-
-    client_ip = get_client_ip(fastapi_request)
-
-    if not await verify_turnstile(request.turnstile_token, client_ip):
-        raise AuthenticationError("CAPTCHA verification failed")
-
     async with get_db_session() as session:
         auth_service = AuthService(session)
         existing = await auth_service.get_user_by_email(request.email)
@@ -297,13 +289,6 @@ async def login_init(
     db=Depends(get_db),
 ):
     await check_otp_rate_limit(request.email, "login")
-
-    from apps.api.core.middleware import get_client_ip
-
-    client_ip = get_client_ip(fastapi_request)
-
-    if not await verify_turnstile(request.turnstile_token, client_ip):
-        raise AuthenticationError("CAPTCHA verification failed")
 
     async with get_db_session() as session:
         auth_service = AuthService(session)
