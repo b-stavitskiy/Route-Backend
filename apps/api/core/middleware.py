@@ -37,37 +37,13 @@ else
 end
 """
 
-BLACKLIST_VIOLATIONS_LUA_SCRIPT = """
-local key = KEYS[1]
-local max_violations = tonumber(ARGV[1])
-local ban_seconds = tonumber(ARGV[2])
-local window = tonumber(ARGV[3])
-
-local count = redis.call('INCR', key)
-if count == 1 then
-    redis.call('EXPIRE', key, window)
-end
-
-if count >= max_violations then
-    redis.call('SET', KEYS[2], '1', 'EX', ban_seconds)
-    redis.call('DEL', key)
-    return {1, ban_seconds}
-end
-
-return {0, 0}
-"""
-
 RATE_CONFIGS: dict[str, tuple[int, int]] = {
-    "auth_strict": (5, 60),
-    "auth_general": (30, 60),
-    "sensitive": (10, 60),
-    "default": (60, 60),
+    "auth_strict": (100, 60),
+    "auth_general": (300, 60),
+    "sensitive": (100, 60),
+    "default": (600, 60),
 }
-GLOBAL_RATE_LIMIT: tuple[int, int] = (300, 60)
-
-BLACKLIST_VIOLATIONS_THRESHOLD = 5
-BLACKLIST_WINDOW = 300
-BLACKLIST_BAN_SECONDS = 3600
+GLOBAL_RATE_LIMIT: tuple[int, int] = (3000, 60)
 
 AUTH_STRICT_PATHS = frozenset(
     {
@@ -221,66 +197,12 @@ class OriginRestrictionMiddleware(BaseHTTPMiddleware):
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     _lua_script = None
-    _blacklist_lua_script = None
 
     @classmethod
     def _get_lua_script(cls, redis: Redis):
         if cls._lua_script is None:
             cls._lua_script = redis.register_script(RATE_LIMIT_LUA_SCRIPT)
         return cls._lua_script
-
-    @classmethod
-    def _get_blacklist_lua_script(cls, redis: Redis):
-        if cls._blacklist_lua_script is None:
-            cls._blacklist_lua_script = redis.register_script(BLACKLIST_VIOLATIONS_LUA_SCRIPT)
-        return cls._blacklist_lua_script
-
-    async def _check_blacklist(
-        self, redis: Redis, ip_hash: str, client_ip: str, request: Request
-    ) -> JSONResponse | None:
-        ban_key = f"bl:{ip_hash}"
-        is_banned = await redis.exists(ban_key)
-        if is_banned:
-            ttl = await redis.ttl(ban_key)
-            logger.warning(
-                f"BLACKLISTED IP blocked: ip={client_ip} "
-                f"path={request.url.path} | {get_ip_debug_info(request)}"
-            )
-            return JSONResponse(
-                status_code=403,
-                content={"message": "Access denied"},
-                headers={"Retry-After": str(max(ttl, 0))},
-            )
-        return None
-
-    async def _record_violation(
-        self, redis: Redis, ip_hash: str, client_ip: str, request: Request, reason: str
-    ) -> None:
-        script = self._get_blacklist_lua_script(redis)
-        violations_key = f"bl:v:{ip_hash}"
-        ban_key = f"bl:{ip_hash}"
-
-        result = await script(
-            keys=[violations_key, ban_key],
-            args=[
-                str(BLACKLIST_VIOLATIONS_THRESHOLD),
-                str(BLACKLIST_BAN_SECONDS),
-                str(BLACKLIST_WINDOW),
-            ],
-        )
-
-        was_banned = bool(result[0])
-
-        if was_banned:
-            logger.warning(
-                f"IP BLACKLISTED for {BLACKLIST_BAN_SECONDS}s: "
-                f"ip={client_ip} reason={reason} | {get_ip_debug_info(request)}"
-            )
-        else:
-            logger.warning(
-                f"Rate limit violation: ip={client_ip} "
-                f"reason={reason} | {get_ip_debug_info(request)}"
-            )
 
     async def dispatch(
         self,
@@ -301,10 +223,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         except Exception:
             return await call_next(request)
 
-        ban_response = await self._check_blacklist(redis, ip_hash, client_ip, request)
-        if ban_response:
-            return ban_response
-
         path_group = classify_path(path)
         limit, window = RATE_CONFIGS[path_group]
 
@@ -319,9 +237,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             path_retry_after = int(path_result[2])
 
             if not path_allowed:
-                await self._record_violation(
-                    redis, ip_hash, client_ip, request, f"rate_limit:{path_group}"
-                )
                 return self._build_429_response(limit, path_retry_after)
 
             global_limit, global_window = GLOBAL_RATE_LIMIT
@@ -335,9 +250,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             global_retry_after = int(global_result[2])
 
             if not global_allowed:
-                await self._record_violation(
-                    redis, ip_hash, client_ip, request, "global_rate_limit"
-                )
                 return self._build_429_response(global_limit, global_retry_after)
 
             response = await call_next(request)
