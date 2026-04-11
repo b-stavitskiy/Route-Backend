@@ -302,6 +302,9 @@ async def login_init(
 
     client_ip = get_client_ip(fastapi_request)
 
+    if not await verify_turnstile(request.turnstile_token, client_ip):
+        raise AuthenticationError("CAPTCHA verification failed")
+
     async with get_db_session() as session:
         auth_service = AuthService(session)
         user = await auth_service.authenticate_user(request.email, request.password)
