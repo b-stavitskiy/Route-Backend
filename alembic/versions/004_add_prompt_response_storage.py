@@ -32,7 +32,7 @@ def upgrade() -> None:
     )
     op.add_column(
         "usage_logs",
-        sa.Column("metadata", sa.Text(), nullable=True),
+        sa.Column("extra_metadata", sa.Text(), nullable=True),
     )
 
     op.execute("ALTER TABLE usage_logs ALTER COLUMN prompt DROP DEFAULT")
@@ -52,7 +52,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_usage_logs_provider_created", table_name="usage_logs")
     op.drop_index("ix_usage_logs_model_created", table_name="usage_logs")
-    op.drop_column("usage_logs", "metadata")
+    op.drop_column("usage_logs", "extra_metadata")
     op.drop_column("usage_logs", "response_model")
     op.drop_column("usage_logs", "response")
     op.drop_column("usage_logs", "prompt")

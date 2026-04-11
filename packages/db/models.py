@@ -160,7 +160,7 @@ class UsageLog(Base):
     status: Mapped[str] = mapped_column(String(20), default="success")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra_metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     request_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -302,7 +302,9 @@ async def stream_generator(
                     status="success",
                     request_id=request_id,
                     request_hash=request_hash,
-                    metadata=json.dumps({"temperature": temperature, "max_tokens": max_tokens}),
+                    extra_metadata=json.dumps(
+                        {"temperature": temperature, "max_tokens": max_tokens}
+                    ),
                 )
                 session.add(usage_log)
                 await session.commit()
@@ -473,7 +475,7 @@ async def chat_completions(
             status="success",
             request_id=request_id,
             request_hash=request_hash,
-            metadata=json.dumps(
+            extra_metadata=json.dumps(
                 {
                     "temperature": body.temperature,
                     "max_tokens": body.max_tokens,
