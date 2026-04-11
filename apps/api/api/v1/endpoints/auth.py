@@ -21,6 +21,7 @@ from apps.api.core.security import (
     verify_oauth_state,
     verify_refresh_token,
 )
+from apps.api.core.turnstile import verify_turnstile
 from apps.api.services.auth_service import AuthService
 from apps.api.services.email.service import get_email_service
 from packages.db.models import Session
@@ -132,6 +133,7 @@ def clear_auth_cookies() -> dict:
 
 class SignupInitRequest(BaseModel):
     email: EmailStr
+    turnstile_token: str | None = None
 
 
 class SignupVerifyRequest(BaseModel):
@@ -151,6 +153,7 @@ class SignupVerifyRequest(BaseModel):
 class LoginInitRequest(BaseModel):
     email: EmailStr
     password: str
+    turnstile_token: str | None = None
 
 
 class LoginVerifyRequest(BaseModel):
@@ -195,9 +198,17 @@ class MessageResponse(BaseModel):
 @router.post("/signup/init", response_model=MessageResponse)
 async def signup_init(
     request: SignupInitRequest,
+    fastapi_request: Request,
     db=Depends(get_db),
 ):
     await check_otp_rate_limit(request.email, "signup")
+
+    from apps.api.core.middleware import get_client_ip
+
+    client_ip = get_client_ip(fastapi_request)
+
+    if not await verify_turnstile(request.turnstile_token, client_ip):
+        raise AuthenticationError("CAPTCHA verification failed")
 
     async with get_db_session() as session:
         auth_service = AuthService(session)
@@ -282,9 +293,17 @@ async def signup_verify(
 @router.post("/login/init", response_model=MessageResponse)
 async def login_init(
     request: LoginInitRequest,
+    fastapi_request: Request,
     db=Depends(get_db),
 ):
     await check_otp_rate_limit(request.email, "login")
+
+    from apps.api.core.middleware import get_client_ip
+
+    client_ip = get_client_ip(fastapi_request)
+
+    if not await verify_turnstile(request.turnstile_token, client_ip):
+        raise AuthenticationError("CAPTCHA verification failed")
 
     async with get_db_session() as session:
         auth_service = AuthService(session)

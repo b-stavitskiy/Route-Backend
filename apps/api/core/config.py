@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     debug: bool = False
     cors_origins: str = "[]"
     app_origin: str = "https://app.routing.run"
+    turnstile_secret_key: str = ""
 
     # Display
     cost_multiplier: float = 1.65
