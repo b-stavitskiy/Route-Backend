@@ -146,6 +146,10 @@ class UsageLog(Base):
     model: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     provider: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
 
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    response_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     input_tokens: Mapped[int | None] = mapped_column(nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(nullable=True)
     total_tokens: Mapped[int | None] = mapped_column(nullable=True)
@@ -155,6 +159,8 @@ class UsageLog(Base):
 
     status: Mapped[str] = mapped_column(String(20), default="success")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     request_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -168,6 +174,8 @@ class UsageLog(Base):
     __table_args__ = (
         Index("ix_usage_logs_user_created", "user_id", "created_at"),
         Index("ix_usage_logs_api_key_created", "api_key_id", "created_at"),
+        Index("ix_usage_logs_model_created", "model", "created_at"),
+        Index("ix_usage_logs_provider_created", "provider", "created_at"),
     )
 
 

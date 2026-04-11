@@ -291,6 +291,9 @@ async def stream_generator(
                     user_id=UUID(user_id),
                     model=model,
                     provider=provider,
+                    prompt=json.dumps(messages),
+                    response=None,
+                    response_model=model,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     total_tokens=total_tokens,
@@ -299,6 +302,7 @@ async def stream_generator(
                     status="success",
                     request_id=request_id,
                     request_hash=request_hash,
+                    metadata=json.dumps({"temperature": temperature, "max_tokens": max_tokens}),
                 )
                 session.add(usage_log)
                 await session.commit()
@@ -454,6 +458,13 @@ async def chat_completions(
             user_id=UUID(user_id),
             model=body.model,
             provider=response.get("provider", "unknown"),
+            prompt=json.dumps(messages),
+            response=json.dumps(
+                response.get("choices", [{}])[0].get("message", {}).get("content")
+                if response.get("choices")
+                else None
+            ),
+            response_model=response.get("model"),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=input_tokens + output_tokens,
@@ -462,6 +473,15 @@ async def chat_completions(
             status="success",
             request_id=request_id,
             request_hash=request_hash,
+            metadata=json.dumps(
+                {
+                    "temperature": body.temperature,
+                    "max_tokens": body.max_tokens,
+                    "top_p": body.top_p,
+                    "frequency_penalty": body.frequency_penalty,
+                    "presence_penalty": body.presence_penalty,
+                }
+            ),
         )
         session.add(usage_log)
         await session.commit()
