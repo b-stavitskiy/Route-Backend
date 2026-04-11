@@ -93,12 +93,12 @@ SKIP_PATHS = frozenset(
 
 
 def get_client_ip(request: Request) -> str:
-    cf_ip = request.headers.get("cf-connecting-ip")
-    if cf_ip:
-        return cf_ip.strip()
     real_ip = request.headers.get("x-real-ip")
     if real_ip:
         return real_ip.strip()
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip.strip()
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip()
@@ -107,17 +107,23 @@ def get_client_ip(request: Request) -> str:
 
 def get_ip_debug_info(request: Request) -> str:
     parts = []
-    cf = request.headers.get("cf-connecting-ip")
-    if cf:
-        parts.append(f"cf-connecting-ip={cf}")
     real = request.headers.get("x-real-ip")
     if real:
         parts.append(f"x-real-ip={real}")
+    cf = request.headers.get("cf-connecting-ip")
+    if cf:
+        parts.append(f"cf-connecting-ip={cf}")
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         parts.append(f"x-forwarded-for={forwarded}")
     remote = request.client.host if request.client else "unknown"
     parts.append(f"remote={remote}")
+    true_client = request.headers.get("True-Client-IP")
+    if true_client:
+        parts.append(f"true-client-ip={true_client}")
+    cf_ip_class = request.headers.get("CF-IPCountry")
+    if cf_ip_class:
+        parts.append(f"cf-ipcountry={cf_ip_class}")
     return " | ".join(parts)
 
 
