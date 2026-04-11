@@ -1,29 +1,250 @@
-from collections.abc import Callable
 import hashlib
-import time
+import logging
+from collections.abc import Callable
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
+from redis.asyncio import Redis
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
+
 from apps.api.core.config import get_settings
 from apps.api.core.security import verify_access_token
 from packages.redis.client import get_redis
 from packages.shared.exceptions import AppError, AuthenticationError
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.types import ASGIApp
 
+logger = logging.getLogger("routing.run.api")
 
-AUTH_RATE_LIMIT = 10
-AUTH_WINDOW = 60
+RATE_LIMIT_LUA_SCRIPT = """
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
 
-GENERAL_RATE_LIMIT = 100
-GENERAL_WINDOW = 60
+local count = redis.call('INCR', key)
+if count == 1 then
+    redis.call('EXPIRE', key, window)
+end
+
+local ttl = redis.call('TTL', key)
+if ttl < 0 then
+    ttl = window
+end
+
+if count > limit then
+    return {0, 0, ttl}
+else
+    return {1, limit - count, 0}
+end
+"""
+
+RATE_CONFIGS: dict[str, tuple[int, int]] = {
+    "auth_strict": (5, 60),
+    "auth_general": (30, 60),
+    "sensitive": (10, 60),
+    "default": (60, 60),
+}
+GLOBAL_RATE_LIMIT: tuple[int, int] = (300, 60)
+
+AUTH_STRICT_PATHS = frozenset(
+    {
+        "/auth/signup/init",
+        "/auth/signup/verify",
+        "/auth/login/init",
+        "/auth/login/verify",
+        "/auth/forgot-password",
+        "/auth/reset-password",
+    }
+)
+
+SKIP_PATHS = frozenset(
+    {
+        "/",
+        "/health",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+        "/v1/status",
+    }
+)
 
 
 def get_client_ip(request: Request) -> str:
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def classify_path(path: str) -> str:
+    if path in AUTH_STRICT_PATHS:
+        return "auth_strict"
+    if path.startswith("/auth/"):
+        return "auth_general"
+    if "/user/keys" in path or path.endswith("/user/password"):
+        return "sensitive"
+    return "default"
+
+
+RESTRICTED_ORIGIN_PATHS = (
+    "/auth/signup",
+    "/auth/login",
+    "/auth/forgot-password",
+    "/auth/reset-password",
+    "/auth/verify-email",
+    "/auth/oauth",
+    "/auth/refresh",
+    "/auth/logout",
+    "/v1/user",
+)
+
+
+class OriginRestrictionMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app: ASGIApp):
+        super().__init__(app)
+        self._allowed_origin = get_settings().app_origin.lower().rstrip("/")
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable,
+    ) -> Response:
+        path = request.url.path
+        is_restricted = any(path.startswith(p) for p in RESTRICTED_ORIGIN_PATHS)
+
+        if not is_restricted:
+            return await call_next(request)
+
+        if request.method == "OPTIONS":
+            origin = request.headers.get("origin", "").lower().rstrip("/")
+            allowed = self._allowed_origin
+            allow_headers = request.headers.get("access-control-request-headers", "*")
+            return Response(
+                status_code=200,
+                headers={
+                    "Access-Control-Allow-Origin": allowed,
+                    "Access-Control-Allow-Credentials": "true",
+                    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+                    "Access-Control-Allow-Headers": allow_headers,
+                },
+            )
+
+        origin = request.headers.get("origin", "")
+        referer = request.headers.get("referer", "")
+
+        if origin:
+            if origin.lower().rstrip("/") != self._allowed_origin:
+                logger.warning(f"Blocked auth request from disallowed origin: {origin}")
+                return JSONResponse(
+                    status_code=403,
+                    content={"message": "Access denied"},
+                )
+        elif referer:
+            from urllib.parse import urlparse
+
+            referer_origin = urlparse(referer).scheme + "://" + urlparse(referer).netloc
+            if referer_origin.lower().rstrip("/") != self._allowed_origin:
+                logger.warning(f"Blocked auth request from disallowed referer: {referer}")
+                return JSONResponse(
+                    status_code=403,
+                    content={"message": "Access denied"},
+                )
+        elif not request.headers.get("authorization") and not request.headers.get("x-api-key"):
+            logger.warning(f"Blocked auth request with no origin/referer: path={path}")
+            return JSONResponse(
+                status_code=403,
+                content={"message": "Access denied"},
+            )
+
+        return await call_next(request)
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    _lua_script = None
+
+    @classmethod
+    def _get_lua_script(cls, redis: Redis):
+        if cls._lua_script is None:
+            cls._lua_script = redis.register_script(RATE_LIMIT_LUA_SCRIPT)
+        return cls._lua_script
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable,
+    ) -> Response:
+        path = request.url.path
+        method = request.method
+
+        if method == "OPTIONS" or path in SKIP_PATHS or path.startswith("/auth/callback"):
+            return await call_next(request)
+
+        client_ip = get_client_ip(request)
+        ip_hash = hashlib.sha256(client_ip.encode()).hexdigest()[:16]
+
+        try:
+            redis = await get_redis()
+        except Exception:
+            return await call_next(request)
+
+        path_group = classify_path(path)
+        limit, window = RATE_CONFIGS[path_group]
+
+        try:
+            script = self._get_lua_script(redis)
+
+            path_key = f"rl:{ip_hash}:{path_group}"
+            path_result = await script(keys=[path_key], args=[str(limit), str(window)])
+
+            path_allowed = bool(path_result[0])
+            path_remaining = int(path_result[1])
+            path_retry_after = int(path_result[2])
+
+            if not path_allowed:
+                logger.warning(
+                    f"Rate limit exceeded: ip={client_ip} path={path} group={path_group}"
+                )
+                return self._build_429_response(limit, path_retry_after)
+
+            global_limit, global_window = GLOBAL_RATE_LIMIT
+            global_key = f"rl:{ip_hash}:global"
+            global_result = await script(
+                keys=[global_key], args=[str(global_limit), str(global_window)]
+            )
+
+            global_allowed = bool(global_result[0])
+            global_remaining = int(global_result[1])
+            global_retry_after = int(global_result[2])
+
+            if not global_allowed:
+                logger.warning(f"Global rate limit exceeded: ip={client_ip} path={path}")
+                return self._build_429_response(global_limit, global_retry_after)
+
+            response = await call_next(request)
+
+            remaining = min(path_remaining, global_remaining)
+            response.headers["X-RateLimit-Limit"] = str(limit)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            return response
+        except Exception:
+            logger.exception("Rate limit check failed, allowing request")
+            return await call_next(request)
+
+    def _build_429_response(self, limit: int, retry_after: int) -> JSONResponse:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "message": "Rate limit exceeded. Please try again later.",
+                "retry_after": retry_after,
+            },
+            headers={
+                "Retry-After": str(retry_after),
+                "X-RateLimit-Limit": str(limit),
+                "X-RateLimit-Remaining": "0",
+            },
+        )
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -87,57 +308,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
             content={"message": "Authentication required"},
             status_code=401,
         )
-
-
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp):
-        super().__init__(app)
-        self.settings = get_settings()
-
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: Callable,
-    ) -> Response:
-        client_ip = get_client_ip(request)
-        redis = await get_redis()
-
-        auth_paths = {"/auth/signup", "/auth/login", "/auth/refresh", "/auth/forgot-password"}
-        is_auth_path = request.url.path in auth_paths
-
-        if is_auth_path:
-            limit = AUTH_RATE_LIMIT
-            window = AUTH_WINDOW
-        else:
-            limit = GENERAL_RATE_LIMIT
-            window = GENERAL_WINDOW
-
-        key = (
-            f"ratelimit:ip:{hashlib.sha256(client_ip.encode()).hexdigest()[:16]}:{request.url.path}"
-        )
-
-        try:
-            current = await redis.get(key)
-            if current is None:
-                await redis.setex(key, window, "1")
-            else:
-                count = int(current)
-                if count >= limit:
-                    ttl = await redis.ttl(key)
-                    return JSONResponse(
-                        content={
-                            "message": "Rate limit exceeded",
-                            "retry_after": ttl if ttl > 0 else window,
-                        },
-                        status_code=429,
-                        headers={"Retry-After": str(ttl if ttl > 0 else window)},
-                    )
-                await redis.incr(key)
-        except Exception:
-            pass
-
-        response = await call_next(request)
-        return response
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

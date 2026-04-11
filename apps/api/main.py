@@ -14,6 +14,8 @@ from apps.api.core.middleware import (
     AuthMiddleware,
     ExceptionHandlerMiddleware,
     MetricsMiddleware,
+    OriginRestrictionMiddleware,
+    RateLimitMiddleware,
 )
 from apps.api.services.health import get_health_service
 from packages.db.session import close_db, init_db
@@ -172,6 +174,8 @@ def create_app() -> FastAPI:
     app.add_middleware(ExceptionHandlerMiddleware)
     app.add_middleware(MetricsMiddleware)
     app.add_middleware(AuthMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(OriginRestrictionMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
@@ -188,12 +192,9 @@ def create_app() -> FastAPI:
             "/v1/anthropic",
             "/v1/models",
             "/v1/messages",
-            "/v1/user",
             "/v1/settings",
             "/v1/status",
             "/v1/pricing",
-            "/v1/models",
-            "/auth",
         ]
         if any(request.url.path.startswith(path) for path in ai_paths):
             origin = request.headers.get("origin")
