@@ -37,6 +37,26 @@ else
 end
 """
 
+BLACKLIST_VIOLATIONS_LUA_SCRIPT = """
+local key = KEYS[1]
+local max_violations = tonumber(ARGV[1])
+local ban_seconds = tonumber(ARGV[2])
+local window = tonumber(ARGV[3])
+
+local count = redis.call('INCR', key)
+if count == 1 then
+    redis.call('EXPIRE', key, window)
+end
+
+if count >= max_violations then
+    redis.call('SET', KEYS[2], '1', 'EX', ban_seconds)
+    redis.call('DEL', key)
+    return {1, ban_seconds}
+end
+
+return {0, 0}
+"""
+
 RATE_CONFIGS: dict[str, tuple[int, int]] = {
     "auth_strict": (5, 60),
     "auth_general": (30, 60),
@@ -44,6 +64,10 @@ RATE_CONFIGS: dict[str, tuple[int, int]] = {
     "default": (60, 60),
 }
 GLOBAL_RATE_LIMIT: tuple[int, int] = (300, 60)
+
+BLACKLIST_VIOLATIONS_THRESHOLD = 5
+BLACKLIST_WINDOW = 300
+BLACKLIST_BAN_SECONDS = 3600
 
 AUTH_STRICT_PATHS = frozenset(
     {
@@ -69,6 +93,9 @@ SKIP_PATHS = frozenset(
 
 
 def get_client_ip(request: Request) -> str:
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip.strip()
     real_ip = request.headers.get("x-real-ip")
     if real_ip:
         return real_ip.strip()
@@ -76,6 +103,22 @@ def get_client_ip(request: Request) -> str:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def get_ip_debug_info(request: Request) -> str:
+    parts = []
+    cf = request.headers.get("cf-connecting-ip")
+    if cf:
+        parts.append(f"cf-connecting-ip={cf}")
+    real = request.headers.get("x-real-ip")
+    if real:
+        parts.append(f"x-real-ip={real}")
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        parts.append(f"x-forwarded-for={forwarded}")
+    remote = request.client.host if request.client else "unknown"
+    parts.append(f"remote={remote}")
+    return " | ".join(parts)
 
 
 def classify_path(path: str) -> str:
@@ -136,7 +179,10 @@ class OriginRestrictionMiddleware(BaseHTTPMiddleware):
 
         if origin:
             if origin.lower().rstrip("/") != self._allowed_origin:
-                logger.warning(f"Blocked auth request from disallowed origin: {origin}")
+                logger.warning(
+                    f"Blocked auth request from disallowed origin: "
+                    f"{origin} | {get_ip_debug_info(request)}"
+                )
                 return JSONResponse(
                     status_code=403,
                     content={"message": "Access denied"},
@@ -146,13 +192,19 @@ class OriginRestrictionMiddleware(BaseHTTPMiddleware):
 
             referer_origin = urlparse(referer).scheme + "://" + urlparse(referer).netloc
             if referer_origin.lower().rstrip("/") != self._allowed_origin:
-                logger.warning(f"Blocked auth request from disallowed referer: {referer}")
+                logger.warning(
+                    f"Blocked auth request from disallowed referer: "
+                    f"{referer} | {get_ip_debug_info(request)}"
+                )
                 return JSONResponse(
                     status_code=403,
                     content={"message": "Access denied"},
                 )
         elif not request.headers.get("authorization") and not request.headers.get("x-api-key"):
-            logger.warning(f"Blocked auth request with no origin/referer: path={path}")
+            logger.warning(
+                f"Blocked auth request with no origin/referer: "
+                f"path={path} | {get_ip_debug_info(request)}"
+            )
             return JSONResponse(
                 status_code=403,
                 content={"message": "Access denied"},
@@ -163,12 +215,66 @@ class OriginRestrictionMiddleware(BaseHTTPMiddleware):
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     _lua_script = None
+    _blacklist_lua_script = None
 
     @classmethod
     def _get_lua_script(cls, redis: Redis):
         if cls._lua_script is None:
             cls._lua_script = redis.register_script(RATE_LIMIT_LUA_SCRIPT)
         return cls._lua_script
+
+    @classmethod
+    def _get_blacklist_lua_script(cls, redis: Redis):
+        if cls._blacklist_lua_script is None:
+            cls._blacklist_lua_script = redis.register_script(BLACKLIST_VIOLATIONS_LUA_SCRIPT)
+        return cls._blacklist_lua_script
+
+    async def _check_blacklist(
+        self, redis: Redis, ip_hash: str, client_ip: str, request: Request
+    ) -> JSONResponse | None:
+        ban_key = f"bl:{ip_hash}"
+        is_banned = await redis.exists(ban_key)
+        if is_banned:
+            ttl = await redis.ttl(ban_key)
+            logger.warning(
+                f"BLACKLISTED IP blocked: ip={client_ip} "
+                f"path={request.url.path} | {get_ip_debug_info(request)}"
+            )
+            return JSONResponse(
+                status_code=403,
+                content={"message": "Access denied"},
+                headers={"Retry-After": str(max(ttl, 0))},
+            )
+        return None
+
+    async def _record_violation(
+        self, redis: Redis, ip_hash: str, client_ip: str, request: Request, reason: str
+    ) -> None:
+        script = self._get_blacklist_lua_script(redis)
+        violations_key = f"bl:v:{ip_hash}"
+        ban_key = f"bl:{ip_hash}"
+
+        result = await script(
+            keys=[violations_key, ban_key],
+            args=[
+                str(BLACKLIST_VIOLATIONS_THRESHOLD),
+                str(BLACKLIST_BAN_SECONDS),
+                str(BLACKLIST_WINDOW),
+            ],
+        )
+
+        was_banned = bool(result[0])
+
+        if was_banned:
+            logger.warning(
+                f"IP BLACKLISTED for {BLACKLIST_BAN_SECONDS}s: "
+                f"ip={client_ip} reason={reason} | {get_ip_debug_info(request)}"
+            )
+        else:
+            logger.warning(
+                f"Rate limit violation: ip={client_ip} "
+                f"reason={reason} | {get_ip_debug_info(request)}"
+            )
 
     async def dispatch(
         self,
@@ -189,6 +295,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         except Exception:
             return await call_next(request)
 
+        ban_response = await self._check_blacklist(redis, ip_hash, client_ip, request)
+        if ban_response:
+            return ban_response
+
         path_group = classify_path(path)
         limit, window = RATE_CONFIGS[path_group]
 
@@ -203,8 +313,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             path_retry_after = int(path_result[2])
 
             if not path_allowed:
-                logger.warning(
-                    f"Rate limit exceeded: ip={client_ip} path={path} group={path_group}"
+                await self._record_violation(
+                    redis, ip_hash, client_ip, request, f"rate_limit:{path_group}"
                 )
                 return self._build_429_response(limit, path_retry_after)
 
@@ -219,7 +329,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             global_retry_after = int(global_result[2])
 
             if not global_allowed:
-                logger.warning(f"Global rate limit exceeded: ip={client_ip} path={path}")
+                await self._record_violation(
+                    redis, ip_hash, client_ip, request, "global_rate_limit"
+                )
                 return self._build_429_response(global_limit, global_retry_after)
 
             response = await call_next(request)
