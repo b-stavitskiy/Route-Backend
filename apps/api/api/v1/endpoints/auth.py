@@ -515,10 +515,18 @@ async def get_me(
         if not user:
             raise AuthenticationError("User not found")
 
+        effective_tier = user.plan_tier
+        if (
+            user.upgraded_to_tier is not None
+            and user.upgraded_until is not None
+            and user.upgraded_until > datetime.now(UTC)
+        ):
+            effective_tier = user.upgraded_to_tier
+
         return UserResponse(
             id=str(user.id),
             email=user.email,
             name=user.name,
-            plan_tier=user.plan_tier.value,
+            plan_tier=effective_tier.value,
             email_verified=user.email_verified,
         )
