@@ -64,6 +64,8 @@ SKIP_PATHS = frozenset(
         "/openapi.json",
         "/redoc",
         "/v1/status",
+        "/v1/user/keys",
+        "/v1/user/keys/revoke-all",
     }
 )
 

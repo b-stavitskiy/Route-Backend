@@ -425,3 +425,31 @@ async def delete_account(
         await session.commit()
 
         return {"message": "Account deleted successfully"}
+
+
+@router.post("/user/keys", include_in_schema=False)
+async def deprecated_create_key(request: Request):
+    from fastapi.responses import Response
+
+    return Response(status_code=404, content="")
+
+
+@router.get("/user/keys", include_in_schema=False)
+async def deprecated_list_keys(request: Request):
+    from fastapi.responses import Response
+
+    return Response(status_code=404, content="")
+
+
+@router.delete("/user/keys/{key_id}", include_in_schema=False)
+async def deprecated_revoke_key(request: Request, key_id: str):
+    from fastapi.responses import Response
+
+    return Response(status_code=404, content="")
+
+
+@router.post("/user/keys/revoke-all", include_in_schema=False)
+async def deprecated_revoke_all_keys(request: Request):
+    from fastapi.responses import Response
+
+    return Response(status_code=404, content="")
