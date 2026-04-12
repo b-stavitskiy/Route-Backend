@@ -146,7 +146,7 @@ class OriginRestrictionMiddleware(BaseHTTPMiddleware):
             origin = request.headers.get("origin", "").lower().rstrip("/")
             allowed = self._allowed_origin
             allow_headers = request.headers.get("access-control-request-headers", "*")
-            return Response(
+            response = Response(
                 status_code=200,
                 headers={
                     "Access-Control-Allow-Origin": allowed,
@@ -154,6 +154,12 @@ class OriginRestrictionMiddleware(BaseHTTPMiddleware):
                     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
                     "Access-Control-Allow-Headers": allow_headers,
                 },
+            )
+            if origin == allowed or origin.startswith("https://app."):
+                return response
+            return JSONResponse(
+                status_code=403,
+                content={"message": "CORS not allowed"},
             )
 
         origin = request.headers.get("origin", "")
