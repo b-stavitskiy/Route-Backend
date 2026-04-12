@@ -474,23 +474,18 @@ async def oauth_callback(
             max_age=3600,
             path="/",
         )
-
-        import json
-
-        user_data = json.dumps(
-            {
-                "id": str(user.id),
-                "email": user.email,
-                "name": user.name,
-                "plan_tier": user.plan_tier.value,
-                "email_verified": user.email_verified,
-            }
+        response.set_cookie(
+            key="oauth_complete",
+            value="true",
+            domain=COOKIE_DOMAIN,
+            secure=COOKIE_SECURE,
+            httponly=False,
+            samesite=COOKIE_SAMESITE,
+            max_age=60,
+            path="/",
         )
-        import base64
 
-        user_b64 = base64.b64encode(user_data.encode()).decode()
-
-        response.headers["Location"] = f"https://app.routing.run/dashboard?user={user_b64}"
+        response.headers["Location"] = "https://app.routing.run/dashboard"
         response.status_code = 302
         return response
 
