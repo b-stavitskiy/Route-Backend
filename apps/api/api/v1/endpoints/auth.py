@@ -474,20 +474,19 @@ async def oauth_callback(
             max_age=3600,
             path="/",
         )
-        response.set_cookie(
-            key="oauth_complete",
-            value="true",
-            domain=COOKIE_DOMAIN,
-            secure=COOKIE_SECURE,
-            httponly=False,
-            samesite=COOKIE_SAMESITE,
-            max_age=60,
-            path="/",
-        )
 
-        response.headers["Location"] = "https://app.routing.run/dashboard"
-        response.status_code = 302
-        return response
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "csrf_token": csrf_token,
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "plan_tier": user.plan_tier.value,
+                "email_verified": user.email_verified,
+            },
+        }
 
 
 @router.get("/me", response_model=UserResponse)
