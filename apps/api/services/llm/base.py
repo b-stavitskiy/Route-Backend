@@ -165,7 +165,7 @@ class BaseLLMProvider(ABC):
                     max_connections=self.max_connections,
                     max_keepalive_connections=20,
                 ),
-                http2=False,
+                http2=True,
             )
         return self._client
 
