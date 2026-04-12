@@ -24,8 +24,8 @@ from packages.shared.exceptions import (
 
 logger = logging.getLogger("routing.run.router")
 
-MAX_MESSAGES = 20
-MAX_TOKENS = 15000
+MAX_MESSAGES = 50
+MAX_TOKENS = 80000
 
 _encoders: dict[str, Any] = {}
 
@@ -400,7 +400,7 @@ class LLMRouter:
                     first_chunk = True
                     chunks_yielded = 0
                     last_chunk_time = time.time()
-                    chunk_timeout_seconds = 60
+                    chunk_timeout_seconds = 300
 
                     async for chunk in stream_gen:
                         try:

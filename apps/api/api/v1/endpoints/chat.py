@@ -380,11 +380,17 @@ async def chat_completions(
         f"messages_count={len(messages)} | component=router"
     )
 
+    model_config = router_instance.provider_config.get_model_config(body.model, plan)
+    context_size = model_config.get("context_size", 80000) if model_config else 80000
+    output_tokens_estimate = body.max_tokens or 4096
+    available_for_input = max(1000, context_size - output_tokens_estimate - 5000)
+
     original_msg_count = len(messages)
-    messages = truncate_messages(messages, max_messages=20)
+    messages = truncate_messages(messages, max_messages=50, max_tokens=available_for_input)
     if len(messages) < original_msg_count:
         logger.info(
-            f"Truncated messages from {original_msg_count} to {len(messages)} | component=router"
+            f"Truncated messages from {original_msg_count} to {len(messages)} "
+            f"(context_size={context_size}, output_tokens_estimate={output_tokens_estimate}, available_for_input={available_for_input}) | component=router"
         )
 
     max_tokens = body.max_tokens
