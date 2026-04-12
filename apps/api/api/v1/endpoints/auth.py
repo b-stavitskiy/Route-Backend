@@ -475,6 +475,14 @@ async def oauth_callback(
             path="/",
         )
 
+        effective_tier = user.plan_tier
+        if (
+            user.upgraded_to_tier is not None
+            and user.upgraded_until is not None
+            and user.upgraded_until > datetime.now(UTC)
+        ):
+            effective_tier = user.upgraded_to_tier
+
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
@@ -483,7 +491,7 @@ async def oauth_callback(
                 "id": str(user.id),
                 "email": user.email,
                 "name": user.name,
-                "plan_tier": get_effective_plan_tier(user).value,
+                "plan_tier": effective_tier.value,
                 "email_verified": user.email_verified,
             },
         }
