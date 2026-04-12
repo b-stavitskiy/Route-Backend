@@ -42,6 +42,7 @@ for logger_name in ["routing.run.api", "routing.run.router", "routing.run.config
     log.setLevel(logging.INFO)
     log.handlers = []
     log.addHandler(handler)
+    log.propagate = False
 
 logger = root_logger
 

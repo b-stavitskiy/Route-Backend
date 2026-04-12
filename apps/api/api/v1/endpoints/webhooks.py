@@ -42,7 +42,10 @@ async def handle_whop_webhook(
     body = await request.body()
     signature = request.headers.get("x-whop-signature", "")
 
-    if settings.whop.webhook_secret and signature:
+    if settings.whop.webhook_secret:
+        if not signature:
+            logger.warning("Missing webhook signature")
+            raise AuthenticationError("Missing webhook signature")
         if not verify_whop_signature(body, signature, settings.whop.webhook_secret):
             logger.warning("Invalid webhook signature")
             raise AuthenticationError("Invalid webhook signature")

@@ -400,14 +400,8 @@ class LLMRouter:
                     first_chunk = True
                     chunks_yielded = 0
                     last_chunk_time = time.time()
-                    chunk_timeout_seconds = 300
 
                     async for chunk in stream_gen:
-                        try:
-                            await asyncio.wait_for(asyncio.sleep(0), timeout=chunk_timeout_seconds)
-                        except TimeoutError:
-                            pass
-
                         if first_chunk:
                             latency_ms = int((time.time() - start_time) * 1000)
                             self.circuit_breaker.record_success(provider_name)
