@@ -475,12 +475,11 @@ async def oauth_callback(
             path="/",
         )
 
-        response.headers["Location"] = "https://app.routing.run/dashboard"
-        return JSONResponse(
-            status_code=200,
-            content={"message": "Authentication successful"},
-            headers={"Location": "https://app.routing.run/dashboard"},
-        )
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "csrf_token": csrf_token,
+        }
 
 
 @router.get("/me", response_model=UserResponse)
