@@ -64,8 +64,6 @@ SKIP_PATHS = frozenset(
         "/openapi.json",
         "/redoc",
         "/v1/status",
-        "/v1/user/keys",
-        "/v1/user/keys/revoke-all",
         "/v1/user/key",
         "/v1/user/key/revoke-all",
     }
@@ -222,7 +220,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         method = request.method
 
-        if method == "OPTIONS" or path in SKIP_PATHS or path.startswith("/auth/callback"):
+        skip_path_prefixes = ("/v1/user/keys", "/v1/user/key")
+        if (
+            method == "OPTIONS"
+            or path in SKIP_PATHS
+            or path.startswith("/auth/callback")
+            or any(path.startswith(prefix) for prefix in skip_path_prefixes)
+        ):
             return await call_next(request)
 
         client_ip = get_client_ip(request)
@@ -315,11 +319,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/docs",
             "/openapi.json",
             "/redoc",
-            "/v1/user/keys",
-            "/v1/user/keys/revoke-all",
         }
+        public_path_prefixes = (
+            "/v1/user/keys",
+            "/v1/user/key",
+        )
 
-        if request.url.path in public_paths or request.url.path.startswith("/auth/callback"):
+        path = request.url.path
+        if path in public_paths or path.startswith("/auth/callback"):
+            return await call_next(request)
+        if any(path.startswith(prefix) for prefix in public_path_prefixes):
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization")

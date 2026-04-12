@@ -220,14 +220,6 @@ def create_app() -> FastAPI:
 
     app.include_router(v1_router)
 
-    @app.get("/v1/user/keys", include_in_schema=False)
-    @app.post("/v1/user/keys", include_in_schema=False)
-    @app.delete("/v1/user/keys/{path:path}", include_in_schema=False)
-    async def deprecated_keys_handler(request: Request, path: str = ""):
-        from fastapi.responses import Response
-
-        return Response(status_code=404, content="")
-
     @app.get("/health")
     async def health_check():
         return {"status": "healthy", "timestamp": int(time.time())}
