@@ -342,22 +342,8 @@ async def chat_completions(
     redis = await get_redis()
 
     request_manager = RequestManager(redis)
-    logger.info(
-        f"CHAT_REQUEST_TRACE: Before rate limit checks | user={user_id} | plan={plan} | model={body.model}"
-    )
-    try:
-        await request_manager.check_daily_limit(user_id, plan)
-        logger.info(f"CHAT_REQUEST_TRACE: Rate limit checks passed | user={user_id}")
-    except Exception as e:
-        logger.error(f"CHAT_REQUEST_TRACE: Rate limit check FAILED: {e}")
-        raise
-
-    try:
-        await request_manager.increment_request_count(user_id)
-        logger.info(f"CHAT_REQUEST_TRACE: Request count incremented | user={user_id}")
-    except Exception as e:
-        logger.error(f"CHAT_REQUEST_TRACE: increment_request_count FAILED: {e}")
-        raise
+    await request_manager.check_daily_limit(user_id, plan)
+    await request_manager.increment_request_count(user_id)
 
     router_instance = LLMRouter(redis)
 

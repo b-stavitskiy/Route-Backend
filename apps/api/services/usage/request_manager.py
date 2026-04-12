@@ -28,26 +28,16 @@ class RequestManager:
 
     async def check_daily_limit(self, user_id: str, plan_tier: str) -> None:
         plan_config = self.provider_config.get_plan_config(plan_tier)
-        logger.info(
-            f"check_daily_limit: user_id={user_id}, plan_tier={plan_tier}, plan_config={plan_config}"
-        )
         if not plan_config:
-            logger.error(f"check_daily_limit: plan_config is None for plan_tier={plan_tier}")
             raise DailyRequestLimitError(limit=0, used=0)
 
         daily_limit = plan_config.get("requests_per_day", 0)
-        logger.info(f"check_daily_limit: daily_limit={daily_limit}")
         if daily_limit == 0:
-            logger.error(f"check_daily_limit: daily_limit is 0 for plan_tier={plan_tier}")
             raise DailyRequestLimitError(limit=0, used=0)
 
         current_usage = await self.get_daily_request_count(user_id)
-        logger.info(f"check_daily_limit: current_usage={current_usage}, limit={daily_limit}")
 
         if current_usage >= daily_limit:
-            logger.error(
-                f"check_daily_limit: LIMIT EXCEEDED - user_id={user_id}, current={current_usage}, limit={daily_limit}"
-            )
             raise DailyRequestLimitError(
                 limit=daily_limit,
                 used=current_usage,
