@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from apps.api.core.rate_limiter import check_model_access, check_rate_limit
+from apps.api.core.rate_limiter import check_model_access
 from apps.api.core.security import hash_api_key, verify_access_token
 from apps.api.services.llm import LLMRouter
 from apps.api.services.llm.router import truncate_messages
@@ -340,18 +340,13 @@ async def chat_completions(
     await check_model_access(plan, body.model)
 
     redis = await get_redis()
-    api_key_header = request.headers.get("X-API-Key", "")
-    key_hash = hash_api_key(api_key_header) if api_key_header else "default"
 
     request_manager = RequestManager(redis)
     logger.info(
         f"CHAT_REQUEST_TRACE: Before rate limit checks | user={user_id} | plan={plan} | model={body.model}"
     )
     try:
-        await asyncio.gather(
-            check_rate_limit(redis, plan, body.model, key_hash),
-            request_manager.check_daily_limit(user_id, plan),
-        )
+        await request_manager.check_daily_limit(user_id, plan)
         logger.info(f"CHAT_REQUEST_TRACE: Rate limit checks passed | user={user_id}")
     except Exception as e:
         logger.error(f"CHAT_REQUEST_TRACE: Rate limit check FAILED: {e}")

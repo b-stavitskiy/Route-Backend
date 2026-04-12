@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from apps.api.core.rate_limiter import check_model_access, check_rate_limit
+from apps.api.core.rate_limiter import check_model_access
 from apps.api.core.security import hash_api_key, verify_access_token
 from apps.api.services.llm import LLMRouter
 from apps.api.services.usage import CreditManager, UsageTracker
@@ -129,9 +129,6 @@ async def create_message(
     await check_model_access(plan, body.model)
 
     redis = await get_redis()
-    api_key_header = request.headers.get("X-API-Key", "")
-    key_hash = hash_api_key(api_key_header) if api_key_header else "default"
-    await check_rate_limit(redis, plan, body.model, key_hash)
 
     credit_manager = CreditManager(redis)
     try:

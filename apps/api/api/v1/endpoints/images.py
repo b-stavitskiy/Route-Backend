@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from apps.api.core.rate_limiter import check_model_access, check_rate_limit
+from apps.api.core.rate_limiter import check_model_access
 from apps.api.core.security import hash_api_key, verify_access_token
 from apps.api.services.llm.providers import get_provider_for_model
 from apps.api.services.usage import UsageTracker
@@ -104,9 +104,6 @@ async def generate_image(
     await check_model_access(plan, body.model)
 
     redis = await get_redis()
-    api_key_header = request.headers.get("X-API-Key", "")
-    key_hash = hash_api_key(api_key_header) if api_key_header else "default"
-    await check_rate_limit(redis, plan, body.model, key_hash)
 
     request_manager = RequestManager(redis)
     await request_manager.check_daily_limit(user_id, plan)

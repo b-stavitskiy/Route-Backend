@@ -53,9 +53,14 @@ async def check_rate_limit(
     results = await pipe.execute()
 
     current_count = results[0]
+    logger.info(
+        f"check_rate_limit: INCREMENTED counter to {current_count}, checking {current_count} > {daily_limit}"
+    )
     if current_count > daily_limit:
         ttl = await redis.ttl(daily_key)
+        logger.error(f"check_rate_limit: RAISING ERROR - {current_count} > {daily_limit}")
         raise DailyRequestLimitError(
             limit=daily_limit,
             used=current_count - 1,
         )
+    logger.info(f"check_rate_limit: PASSED - {current_count} <= {daily_limit}")
