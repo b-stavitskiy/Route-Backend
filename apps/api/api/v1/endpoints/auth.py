@@ -475,7 +475,22 @@ async def oauth_callback(
             path="/",
         )
 
-        response.headers["Location"] = "https://app.routing.run/dashboard"
+        import json
+
+        user_data = json.dumps(
+            {
+                "id": str(user.id),
+                "email": user.email,
+                "name": user.name,
+                "plan_tier": user.plan_tier.value,
+                "email_verified": user.email_verified,
+            }
+        )
+        import base64
+
+        user_b64 = base64.b64encode(user_data.encode()).decode()
+
+        response.headers["Location"] = f"https://app.routing.run/dashboard?user={user_b64}"
         response.status_code = 302
         return response
 
