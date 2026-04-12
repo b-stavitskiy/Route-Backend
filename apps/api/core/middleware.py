@@ -108,7 +108,7 @@ def classify_path(path: str) -> str:
         return "auth_strict"
     if path.startswith("/auth/"):
         return "auth_general"
-    if "/user/keys" in path or path.endswith("/user/password"):
+    if "/user/key" in path or path.endswith("/user/password"):
         return "sensitive"
     return "default"
 

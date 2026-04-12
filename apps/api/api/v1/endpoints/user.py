@@ -4,10 +4,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
+from sqlalchemy import select
+
 from apps.api.core.security import (
     generate_api_key,
-    verify_access_token,
     hash_password,
+    verify_access_token,
 )
 from apps.api.services.usage import UsageTracker
 from apps.api.services.usage.tracker import CreditManager
@@ -15,7 +17,6 @@ from packages.db.models import ApiKey, PlanTier, User
 from packages.db.session import get_db_session
 from packages.redis.client import get_redis
 from packages.shared.exceptions import NotFoundError, RateLimitError
-from sqlalchemy import select
 
 router = APIRouter(prefix="/v1", tags=["user"])
 
@@ -143,7 +144,7 @@ async def get_usage(
     )
 
 
-@router.post("/user/keys")
+@router.post("/user/key")
 async def create_api_key(
     request: Request,
 ):
@@ -186,7 +187,7 @@ async def create_api_key(
         }
 
 
-@router.get("/user/keys")
+@router.get("/user/key")
 async def list_api_keys(
     request: Request,
 ):
@@ -216,7 +217,7 @@ async def list_api_keys(
         }
 
 
-@router.delete("/user/keys/{key_id}")
+@router.delete("/user/key/{key_id}")
 async def revoke_api_key(
     request: Request,
     key_id: str,
@@ -382,7 +383,7 @@ async def change_password(
         return {"message": "Password changed successfully"}
 
 
-@router.post("/user/keys/revoke-all")
+@router.post("/user/key/revoke-all")
 async def revoke_all_api_keys(
     request: Request,
 ):
