@@ -355,7 +355,10 @@ async def chat_completions(
 
     messages = []
     for m in body.messages:
-        msg = {"role": m.role, "content": m.content}
+        content = m.content
+        if isinstance(content, list):
+            content = [c.model_dump() if hasattr(c, "model_dump") else c for c in content]
+        msg = {"role": m.role, "content": content}
         if m.tool_call_id is not None:
             if m.role == "tool" and not m.tool_call_id:
                 raise HTTPException(
