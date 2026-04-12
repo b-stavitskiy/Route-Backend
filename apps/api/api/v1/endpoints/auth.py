@@ -483,7 +483,7 @@ async def oauth_callback(
                 "id": str(user.id),
                 "email": user.email,
                 "name": user.name,
-                "plan_tier": user.plan_tier.value,
+                "plan_tier": get_effective_plan_tier(user).value,
                 "email_verified": user.email_verified,
             },
         }
