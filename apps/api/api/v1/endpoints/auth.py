@@ -448,8 +448,6 @@ async def oauth_callback(
             refresh_token=oauth_data.get("refresh_token"),
         )
 
-        # print()
-
         access_token = create_access_token(
             subject=str(user.id),
             additional_claims={"plan": user.plan_tier.value},
@@ -477,12 +475,12 @@ async def oauth_callback(
             path="/",
         )
 
-        return {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "csrf_token": csrf_token,
-            "redirect_url": f"https://app.routing.run/auth/callback/github?access_token={access_token}&refresh_token={refresh_token}&csrf_token={csrf_token}",
-        }
+        response.headers["Location"] = "https://app.routing.run/dashboard"
+        return JSONResponse(
+            status_code=200,
+            content={"message": "Authentication successful"},
+            headers={"Location": "https://app.routing.run/dashboard"},
+        )
 
 
 @router.get("/me", response_model=UserResponse)
