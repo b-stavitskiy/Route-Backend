@@ -171,20 +171,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    suppress_logging_paths = ("/v1/user/keys",)
     uvicorn_logger = logging.getLogger("uvicorn.access")
-    old_access_filter = uvicorn_logger.filters[0] if uvicorn_logger.filters else None
-
-    class SuppressSpecific404Filter:
-        def filter(self, record):
-            if old_access_filter and not old_access_filter.filter(record):
-                return False
-            msg = record.getMessage()
-            if any(path in msg for path in suppress_logging_paths) and '" 404 ' in msg:
-                return False
-            return True
-
-    uvicorn_logger.addFilter(SuppressSpecific404Filter())
+    uvicorn_logger.setLevel(logging.WARNING)
+    for handler in uvicorn_logger.handlers[:]:
+        uvicorn_logger.removeHandler(handler)
+    uvicorn_logger.addHandler(logging.NullHandler())
 
     app.add_middleware(ExceptionHandlerMiddleware)
     app.add_middleware(MetricsMiddleware)
