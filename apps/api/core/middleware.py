@@ -66,6 +66,8 @@ SKIP_PATHS = frozenset(
         "/v1/status",
         "/v1/user/keys",
         "/v1/user/keys/revoke-all",
+        "/v1/user/key",
+        "/v1/user/key/revoke-all",
     }
 )
 
@@ -313,6 +315,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/docs",
             "/openapi.json",
             "/redoc",
+            "/v1/user/keys",
+            "/v1/user/keys/revoke-all",
         }
 
         if request.url.path in public_paths or request.url.path.startswith("/auth/callback"):
