@@ -25,7 +25,7 @@ from packages.shared.exceptions import (
 logger = logging.getLogger("routing.run.router")
 
 MAX_MESSAGES = 50
-MAX_TOKENS = 80000
+MAX_TOKENS = 200000
 
 _encoders: dict[str, Any] = {}
 
