@@ -344,12 +344,17 @@ async def chat_completions(
     key_hash = hash_api_key(api_key_header) if api_key_header else "default"
 
     request_manager = RequestManager(redis)
+    logger.info(
+        f"CHAT_REQUEST_TRACE: Before rate limit checks | user={user_id} | plan={plan} | model={body.model}"
+    )
     await asyncio.gather(
         check_rate_limit(redis, plan, body.model, key_hash),
         request_manager.check_daily_limit(user_id, plan),
     )
+    logger.info(f"CHAT_REQUEST_TRACE: Rate limit checks passed | user={user_id}")
 
     await request_manager.increment_request_count(user_id)
+    logger.info(f"CHAT_REQUEST_TRACE: Request count incremented | user={user_id}")
 
     router_instance = LLMRouter(redis)
 
