@@ -217,14 +217,24 @@ class ProviderConfig:
         if self._initialized:
             return
 
-        config_dir = Path(__file__).parent.parent.parent.parent / "config"
-        provider_config_path = config_dir / "provider.yaml"
-        plans_config_path = config_dir / "plans.yaml"
+        from packages.shared.config_puller import find_route_configs_dir, load_local_config
 
-        self._config = {
-            "providers": load_yaml_config(str(provider_config_path)),
-        }
-        self._plans_config = load_yaml_config(str(plans_config_path))
+        route_configs = find_route_configs_dir()
+        if route_configs:
+            configs = load_local_config(str(route_configs))
+            self._config = {
+                "providers": configs.get("provider.yaml", {}),
+            }
+            self._plans_config = configs.get("plans.yaml", {})
+        else:
+            config_dir = Path(__file__).parent.parent.parent.parent / "config"
+            provider_config_path = config_dir / "provider.yaml"
+            plans_config_path = config_dir / "plans.yaml"
+
+            self._config = {
+                "providers": load_yaml_config(str(provider_config_path)),
+            }
+            self._plans_config = load_yaml_config(str(plans_config_path))
         self._initialized = True
 
     async def load_remote_config(self, settings: Settings | None = None):
