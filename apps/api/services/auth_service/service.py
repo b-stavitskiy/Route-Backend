@@ -92,37 +92,44 @@ class AuthService:
         access_token: str | None = None,
         refresh_token: str | None = None,
     ) -> User:
-        from sqlalchemy import select
-        from packages.db.models import User as UserModel
+        from packages.db.models import OAuthAccount, User as UserModel
 
-        existing_by_provider = None
-        if provider == OAuthProvider.GITHUB:
-            result = await self.session.execute(
-                select(UserModel).where(UserModel.github_id == provider_user_id)
+        result = await self.session.execute(
+            select(OAuthAccount).where(
+                OAuthAccount.provider == provider.value,
+                OAuthAccount.provider_user_id == provider_user_id,
             )
-            existing_by_provider = result.scalar_one_or_none()
+        )
+        existing_oauth_account = result.scalar_one_or_none()
 
-        if existing_by_provider:
+        if existing_oauth_account:
+            result = await self.session.execute(
+                select(UserModel).where(UserModel.id == existing_oauth_account.user_id)
+            )
+            user = result.scalar_one()
             if avatar_url:
-                existing_by_provider.avatar_url = avatar_url
+                user.avatar_url = avatar_url
             if name:
-                existing_by_provider.name = name
+                user.name = name
             await self.session.flush()
-            return existing_by_provider
+            return user
 
         existing_by_email = await self.get_user_by_email(email)
         if existing_by_email:
-            if provider == OAuthProvider.GITHUB and not existing_by_email.github_id:
-                existing_by_email.github_id = provider_user_id
-                if avatar_url:
-                    existing_by_email.avatar_url = avatar_url
-                if name:
-                    existing_by_email.name = name
-                await self.session.flush()
-                return existing_by_email
-            elif existing_by_email.github_id == provider_user_id:
-                return existing_by_email
-            raise DuplicateResourceError("User", email)
+            oauth_account = OAuthAccount(
+                user_id=existing_by_email.id,
+                provider=provider.value,
+                provider_user_id=provider_user_id,
+                access_token=access_token or "",
+                refresh_token=refresh_token,
+            )
+            self.session.add(oauth_account)
+            if avatar_url:
+                existing_by_email.avatar_url = avatar_url
+            if name:
+                existing_by_email.name = name
+            await self.session.flush()
+            return existing_by_email
 
         user = User(
             email=email,
@@ -131,10 +138,18 @@ class AuthService:
             plan_tier=PlanTier.FREE,
             credits=5.0,
             email_verified=True,
-            github_id=provider_user_id if provider == OAuthProvider.GITHUB else None,
         )
-
         self.session.add(user)
+        await self.session.flush()
+
+        oauth_account = OAuthAccount(
+            user_id=user.id,
+            provider=provider.value,
+            provider_user_id=provider_user_id,
+            access_token=access_token or "",
+            refresh_token=refresh_token,
+        )
+        self.session.add(oauth_account)
         await self.session.flush()
         return user
 
@@ -189,4 +204,50 @@ class AuthService:
                 "name": user_data.get("name") or user_data.get("login"),
                 "avatar_url": user_data.get("avatar_url"),
                 "access_token": access_token,
+            }
+
+    async def verify_discord_oauth(self, code: str) -> dict[str, Any]:
+        async with httpx.AsyncClient() as client:
+            token_response = await client.post(
+                "https://discord.com/api/oauth2/token",
+                data={
+                    "client_id": self.settings.discord_client_id,
+                    "client_secret": self.settings.discord_client_secret,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": f"{self.settings.oauth_redirect_uri}/discord",
+                },
+                headers={"Accept": "application/json"},
+            )
+
+            if token_response.status_code != 200:
+                raise AuthenticationError("Failed to exchange code for token")
+
+            token_data = token_response.json()
+            access_token = token_data.get("access_token")
+            refresh_token = token_data.get("refresh_token")
+
+            if not access_token:
+                raise AuthenticationError("No access token received")
+
+            user_response = await client.get(
+                "https://discord.com/api/users/@me",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+
+            if user_response.status_code != 200:
+                raise AuthenticationError("Failed to get user info")
+
+            user_data = user_response.json()
+
+            return {
+                "provider": OAuthProvider.DISCORD,
+                "provider_user_id": str(user_data["id"]),
+                "email": user_data.get("email"),
+                "name": user_data.get("username"),
+                "avatar_url": f"https://cdn.discordapp.com/avatars/{user_data['id']}/{user_data['avatar']}.png"
+                if user_data.get("avatar")
+                else None,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
             }

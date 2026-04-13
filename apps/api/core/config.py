@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     github_client_secret: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
+    discord_client_id: str = ""
+    discord_client_secret: str = ""
     oauth_redirect_uri: str = ""
 
     # Email

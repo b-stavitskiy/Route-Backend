@@ -45,6 +45,7 @@ class RequestStatus(StrEnum):
 class OAuthProvider(StrEnum):
     GITHUB = "github"
     GOOGLE = "google"
+    DISCORD = "discord"
 
 
 class PlanLimits:

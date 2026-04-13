@@ -61,7 +61,7 @@ async def create_session(
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-ALLOWED_OAUTH_PROVIDERS = {"github"}
+ALLOWED_OAUTH_PROVIDERS = {"github", "discord"}
 
 ACCESS_TOKEN_COOKIE = "access_token"
 REFRESH_TOKEN_COOKIE = "refresh_token"
@@ -404,6 +404,17 @@ async def oauth_redirect(
         )
         return RedirectResponse(url=github_auth_url)
 
+    if provider == "discord":
+        discord_auth_url = (
+            f"https://discord.com/oauth2/authorize"
+            f"?client_id={settings.discord_client_id}"
+            f"&redirect_uri={settings.oauth_redirect_uri}/discord"
+            f"&scope=identify email"
+            f"&response_type=code"
+            f"&state={state}"
+        )
+        return RedirectResponse(url=discord_auth_url)
+
     raise AuthenticationError(f"Unknown OAuth provider: {provider}")
 
 
@@ -435,6 +446,8 @@ async def oauth_callback(
 
         if provider == "github":
             oauth_data = await auth_service.verify_github_oauth(code)
+        elif provider == "discord":
+            oauth_data = await auth_service.verify_discord_oauth(code)
         else:
             raise AuthenticationError(f"Unknown OAuth provider: {provider}")
 
