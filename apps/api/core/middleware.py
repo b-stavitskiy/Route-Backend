@@ -314,7 +314,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/auth/oauth/github",
             "/auth/oauth/discord",
             "/webhooks/whop",
-            "/webhooks/cron",
             "/v1/models",
             "/v1/settings",
             "/v1/status",
@@ -325,6 +324,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         public_path_prefixes = (
             "/v1/user/keys",
             "/v1/user/key",
+            "/webhooks/cron",
         )
 
         path = request.url.path
