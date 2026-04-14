@@ -243,26 +243,34 @@ async def cron_notify_new_users(
         )
         new_users = result.fetchall()
 
-    if not new_users:
-        return {"status": "ok", "new_users": 0}
-
-    for user in new_users:
-        plan = user.plan_tier.value if hasattr(user.plan_tier, "value") else user.plan_tier
-        embed = {
-            "title": "🆕 New User Signed Up!",
-            "color": 5814783,
-            "fields": [
-                {"name": "Email", "value": user.email or "N/A", "inline": True},
-                {"name": "Name", "value": user.name or "N/A", "inline": True},
-                {"name": "Plan", "value": str(plan), "inline": True},
-                {"name": "Total Users", "value": str(total_users), "inline": False},
-                {"name": "User ID", "value": str(user.id), "inline": False},
-            ],
-            "footer": {"text": "Routing.Run"},
-        }
-
-        async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient() as client:
+        if new_users:
+            for user in new_users:
+                plan = user.plan_tier.value if hasattr(user.plan_tier, "value") else user.plan_tier
+                embed = {
+                    "title": "🆕 New User Signed Up!",
+                    "color": 5814783,
+                    "fields": [
+                        {"name": "Email", "value": user.email or "N/A", "inline": True},
+                        {"name": "Name", "value": user.name or "N/A", "inline": True},
+                        {"name": "Plan", "value": str(plan), "inline": True},
+                        {"name": "Total Users", "value": str(total_users), "inline": False},
+                        {"name": "User ID", "value": str(user.id), "inline": False},
+                    ],
+                    "footer": {"text": "Routing.Run"},
+                }
+                await client.post(webhook_url, json={"embeds": [embed]}, timeout=10.0)
+        else:
+            embed = {
+                "title": "✅ Cron Check - No New Users",
+                "color": 5814783,
+                "fields": [
+                    {"name": "Total Users", "value": str(total_users), "inline": False},
+                    {"name": "New Users (last min)", "value": "0", "inline": False},
+                ],
+                "footer": {"text": "Routing.Run - Cron Active"},
+            }
             await client.post(webhook_url, json={"embeds": [embed]}, timeout=10.0)
 
-    logger.info(f"Cron: notified {len(new_users)} new users to Discord")
-    return {"status": "ok", "new_users": len(new_users)}
+    logger.info(f"Cron: notified {len(new_users)} new users to Discord, total_users={total_users}")
+    return {"status": "ok", "new_users": len(new_users), "total_users": total_users}
