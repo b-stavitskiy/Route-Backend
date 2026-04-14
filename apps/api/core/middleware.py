@@ -314,6 +314,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/auth/oauth/github",
             "/auth/oauth/discord",
             "/webhooks/whop",
+            "/webhooks/cron",
             "/v1/models",
             "/v1/settings",
             "/v1/status",
