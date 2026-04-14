@@ -312,6 +312,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/auth/reset-password",
             "/auth/verify-email",
             "/auth/oauth/github",
+            "/auth/oauth/discord",
             "/webhooks/whop",
             "/v1/models",
             "/v1/settings",
