@@ -149,6 +149,7 @@ class AuthService:
             access_token=access_token or "",
             refresh_token=refresh_token,
         )
+
         self.session.add(oauth_account)
         await self.session.flush()
         return user

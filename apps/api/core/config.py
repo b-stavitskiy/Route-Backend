@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     worker_max_jobs: int = 100
     worker_job_timeout: int = 300
 
+    # Discord
+    discord_webhook_url: str = ""
+
     # App
     app_host: str = "0.0.0.0"
     app_port: int = 8000
