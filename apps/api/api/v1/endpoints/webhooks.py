@@ -3,8 +3,10 @@ import hmac
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Request
+import httpx
+from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel
+from sqlalchemy import text
 from apps.api.core.config import get_settings
 from apps.api.services.auth_service import AuthService
 from packages.db.models import PlanTier, User
@@ -212,3 +214,55 @@ def get_plan_tier_from_whop(plan_id: str) -> PlanTier:
 
     logger.warning(f"Unknown plan_id: {plan_id}, defaulting to FREE")
     return PlanTier.FREE
+
+
+@router.post("/cron/new-users")
+async def cron_notify_new_users(
+    x_admin_key: str = Header(..., alias="X-Admin-Key"),
+):
+    settings = get_settings()
+
+    if not settings.admin_api_key or x_admin_key != settings.admin_api_key:
+        raise AuthenticationError("Invalid admin key")
+
+    webhook_url = settings.discord_webhook_url
+    if not webhook_url:
+        return {"status": "skipped", "reason": "No webhook configured"}
+
+    async with get_db_session() as session:
+        result = await session.execute(text("SELECT COUNT(*) FROM users"))
+        total_users = result.scalar()
+
+        result = await session.execute(
+            text("""
+                SELECT id, email, name, plan_tier, created_at 
+                FROM users 
+                WHERE created_at > NOW() - INTERVAL '1 minute'
+                ORDER BY created_at DESC
+            """)
+        )
+        new_users = result.fetchall()
+
+    if not new_users:
+        return {"status": "ok", "new_users": 0}
+
+    for user in new_users:
+        plan = user.plan_tier.value if hasattr(user.plan_tier, "value") else user.plan_tier
+        embed = {
+            "title": "🆕 New User Signed Up!",
+            "color": 5814783,
+            "fields": [
+                {"name": "Email", "value": user.email or "N/A", "inline": True},
+                {"name": "Name", "value": user.name or "N/A", "inline": True},
+                {"name": "Plan", "value": str(plan), "inline": True},
+                {"name": "Total Users", "value": str(total_users), "inline": False},
+                {"name": "User ID", "value": str(user.id), "inline": False},
+            ],
+            "footer": {"text": "Routing.Run"},
+        }
+
+        async with httpx.AsyncClient() as client:
+            await client.post(webhook_url, json={"embeds": [embed]}, timeout=10.0)
+
+    logger.info(f"Cron: notified {len(new_users)} new users to Discord")
+    return {"status": "ok", "new_users": len(new_users)}

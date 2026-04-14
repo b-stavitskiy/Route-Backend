@@ -1,11 +1,14 @@
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import text
 from packages.db.session import create_session_factory
 
 
 async def notify_new_users_task():
     session_factory = create_session_factory()
     async with session_factory() as session:
+        result = await session.execute(text("SELECT COUNT(*) FROM users"))
+        total_users = result.scalar()
+
         result = await session.execute(
             text("""
                 SELECT id, email, name, plan_tier, created_at 
@@ -20,7 +23,7 @@ async def notify_new_users_task():
             webhook_url = _get_webhook_url()
             if webhook_url:
                 for user in new_users:
-                    await _send_discord_notification(webhook_url, user)
+                    await _send_discord_notification(webhook_url, user, total_users)
 
         return {"new_users_count": len(new_users)}
 
@@ -32,7 +35,7 @@ def _get_webhook_url() -> str | None:
     return settings.discord_webhook_url or None
 
 
-async def _send_discord_notification(webhook_url: str, user) -> None:
+async def _send_discord_notification(webhook_url: str, user, total_users: int) -> None:
     import logging
 
     logger = logging.getLogger("routing.run.worker")
@@ -50,6 +53,7 @@ async def _send_discord_notification(webhook_url: str, user) -> None:
                 ),
                 "inline": True,
             },
+            {"name": "Total Users", "value": str(total_users), "inline": False},
             {"name": "User ID", "value": str(user.id), "inline": False},
         ],
         "footer": {"text": "Routing.Run"},
@@ -68,4 +72,4 @@ async def _send_discord_notification(webhook_url: str, user) -> None:
         logger.error(f"Error sending Discord notification: {e}")
 
 
-WORKER_FUNCTIONS = []
+WORKER_FUNCTIONS = [notify_new_users_task]

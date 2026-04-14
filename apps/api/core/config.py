@@ -89,6 +89,7 @@ class Settings(BaseSettings):
 
     # Discord
     discord_webhook_url: str = ""
+    admin_api_key: str = ""
 
     # App
     app_host: str = "0.0.0.0"

@@ -2,16 +2,12 @@
 """
 Standalone script to check for new users and notify Discord.
 Run via cron: * * * * * /path/to/python /path/to/check_new_users.py
-
-Or add to crontab:
-* * * * * cd /path/to/routing-backend && python -m apps.worker.scripts.check_new_users
 """
-
 import asyncio
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 async def main():
@@ -30,6 +26,11 @@ async def main():
     session_factory = create_session_factory()
     async with session_factory() as session:
         result = await session.execute(
+            text("SELECT COUNT(*) FROM users")
+        )
+        total_users = result.scalar()
+
+        result = await session.execute(
             text("""
                 SELECT id, email, name, plan_tier, created_at 
                 FROM users 
@@ -44,7 +45,7 @@ async def main():
             return
 
         for user in new_users:
-            plan = user.plan_tier.value if hasattr(user.plan_tier, "value") else user.plan_tier
+            plan = user.plan_tier.value if hasattr(user.plan_tier, 'value') else user.plan_tier
             print(f"New user: {user.email} ({plan})")
 
             embed = {
@@ -54,6 +55,7 @@ async def main():
                     {"name": "Email", "value": user.email or "N/A", "inline": True},
                     {"name": "Name", "value": user.name or "N/A", "inline": True},
                     {"name": "Plan", "value": str(plan), "inline": True},
+                    {"name": "Total Users", "value": str(total_users), "inline": False},
                     {"name": "User ID", "value": str(user.id), "inline": False},
                 ],
                 "footer": {"text": "Routing.Run"},
