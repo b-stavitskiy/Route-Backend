@@ -405,10 +405,12 @@ async def oauth_redirect(
         return RedirectResponse(url=github_auth_url)
 
     if provider == "discord":
+        oauth_base = settings.oauth_redirect_uri.rsplit("/github", 1)[0]
+        discord_redirect = f"{oauth_base}/discord"
         discord_auth_url = (
             f"https://discord.com/oauth2/authorize"
             f"?client_id={settings.discord_client_id}"
-            f"&redirect_uri={settings.oauth_redirect_uri}/discord"
+            f"&redirect_uri={discord_redirect}"
             f"&scope=identify email"
             f"&response_type=code"
             f"&state={state}"

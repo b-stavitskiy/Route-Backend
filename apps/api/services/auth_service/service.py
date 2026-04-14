@@ -215,7 +215,7 @@ class AuthService:
                     "client_secret": self.settings.discord_client_secret,
                     "code": code,
                     "grant_type": "authorization_code",
-                    "redirect_uri": f"{self.settings.oauth_redirect_uri}/discord",
+                    "redirect_uri": f"{self.settings.oauth_redirect_uri.rsplit('/github', 1)[0]}/discord",
                 },
                 headers={"Accept": "application/json"},
             )
