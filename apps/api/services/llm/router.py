@@ -389,6 +389,7 @@ class LLMRouter:
                     )
 
                     start_time = time.time()
+                    chunks_yielded = 0
                     stream_gen = client.chat_complete_stream(
                         model=model_id,
                         messages=messages,
@@ -398,7 +399,6 @@ class LLMRouter:
                     )
 
                     first_chunk = True
-                    chunks_yielded = 0
                     last_chunk_time = time.time()
 
                     async for chunk in stream_gen:
