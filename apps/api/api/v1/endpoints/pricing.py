@@ -28,6 +28,8 @@ MODEL_DISPLAY_NAMES = {
     "route/deepseek-v3.2": "DeepSeek V3.2",
     "route/qwen3.5-9b": "Qwen3.5 9B",
     "route/qwen3.5-397b-a17b": "Qwen3.5 397B A17B",
+    "route/qwen3.5-plus": "Qwen3.5 Plus",
+    "route/qwen3.6-plus": "Qwen3.6 Plus",
     "route/gemma-4-31b-it": "Gemma-4 31B IT",
     "route/deepseek-v3.2-speciale": "DeepSeek V3.2 Speciale",
     "route/deepseek-r1": "DeepSeek R1",
