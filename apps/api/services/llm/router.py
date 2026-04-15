@@ -73,6 +73,11 @@ def truncate_messages(
     if not messages:
         return messages
 
+    if len(messages) <= max_messages:
+        total_chars = sum(len(str(m.get("content", ""))) for m in messages)
+        if total_chars < max_tokens // 2:
+            return messages
+
     total_tokens = sum(_count_message_tokens(m) for m in messages)
     if len(messages) <= max_messages and total_tokens <= max_tokens:
         return messages
@@ -415,10 +420,11 @@ class LLMRouter:
                         last_chunk_time = time.time()
                         chunks_yielded += 1
 
-                        data = chunk.get("data", {})
+                        data = chunk.get("data")
                         if isinstance(data, str):
                             try:
                                 data = json.loads(data)
+                                chunk["data"] = data
                             except json.JSONDecodeError:
                                 pass
 

@@ -43,6 +43,33 @@ class RequestManager:
                 used=current_usage,
             )
 
+    async def check_and_increment(self, user_id: str, plan_tier: str) -> int:
+        plan_config = self.provider_config.get_plan_config(plan_tier)
+        if not plan_config:
+            raise DailyRequestLimitError(limit=0, used=0)
+
+        daily_limit = plan_config.get("requests_per_day", 0)
+        if daily_limit == 0:
+            raise DailyRequestLimitError(limit=0, used=0)
+
+        daily_key = self._get_daily_key(user_id)
+        pipe = self.redis.pipeline()
+        pipe.hincrby(daily_key, "total_requests", 1)
+        pipe.expire(daily_key, self.KEY_EXPIRY)
+        results = await pipe.execute()
+
+        current_count = int(results[0])
+        if current_count > daily_limit:
+            pipe2 = self.redis.pipeline()
+            pipe2.hincrby(daily_key, "total_requests", -1)
+            await pipe2.execute()
+            raise DailyRequestLimitError(
+                limit=daily_limit,
+                used=current_count - 1,
+            )
+
+        return current_count
+
     async def increment_request_count(self, user_id: str) -> int:
         daily_key = self._get_daily_key(user_id)
         pipe = self.redis.pipeline()

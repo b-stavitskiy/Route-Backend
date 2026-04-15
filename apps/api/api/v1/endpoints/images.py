@@ -106,8 +106,7 @@ async def generate_image(
     redis = await get_redis()
 
     request_manager = RequestManager(redis)
-    await request_manager.check_daily_limit(user_id, plan)
-    await request_manager.increment_request_count(user_id)
+    await request_manager.check_and_increment(user_id, plan)
 
     provider_config_data = {
         "minimax_image": {"provider_chain": [{"provider": "minimax_image", "model_id": "image-01"}]}

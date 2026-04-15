@@ -70,20 +70,25 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
     if hasattr(request.state, "api_key") and request.state.api_key:
         api_key = request.state.api_key
 
-    import logging
-
-    logger = logging.getLogger("routing.run.api")
-    logger.info(f"get_user_from_request - api_key: {api_key[:30] if api_key else None}")
-
     if api_key:
+        from packages.redis.client import get_redis
+
+        key_hash = hash_api_key(api_key)
+        redis = await get_redis()
+
+        cache_key = f"auth:{key_hash}"
+        cached = await redis.get(cache_key)
+        if cached:
+            parts = cached.split(":")
+            if len(parts) == 3:
+                logger.info(f"Auth cache hit | key_hash={key_hash[:12]}")
+                return parts[0], parts[1], parts[2]
+
         async with get_db_session() as session:
             from sqlalchemy import select
-            from sqlalchemy.orm import selectinload
+            from sqlalchemy.orm import joinedload
 
             from packages.db.models import ApiKey
-
-            key_hash = hash_api_key(api_key)
-            logger.info(f"get_user_from_request - key_hash: {key_hash}")
 
             result = await session.execute(
                 select(ApiKey)
@@ -91,10 +96,9 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
                     ApiKey.key_hash == key_hash,
                     ApiKey.is_active,
                 )
-                .options(selectinload(ApiKey.user))
+                .options(joinedload(ApiKey.user))
             )
             api_key_obj = result.scalar_one_or_none()
-            logger.info(f"get_user_from_request - api_key_obj found: {api_key_obj is not None}")
 
             if api_key_obj:
                 user = api_key_obj.user
@@ -107,6 +111,10 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
                         current_plan = user.plan_tier.value
                 else:
                     current_plan = user.plan_tier.value if user else api_key_obj.plan_tier.value
+
+                cache_value = f"{api_key_obj.user_id}:{current_plan}:{api_key_obj.id}"
+                await redis.set(cache_key, cache_value, ex=300)
+
                 return str(api_key_obj.user_id), current_plan, str(api_key_obj.id)
             else:
                 raise AuthenticationError("Invalid API key")
@@ -342,8 +350,7 @@ async def chat_completions(
     redis = await get_redis()
 
     request_manager = RequestManager(redis)
-    await request_manager.check_daily_limit(user_id, plan)
-    await request_manager.increment_request_count(user_id)
+    await request_manager.check_and_increment(user_id, plan)
 
     router_instance = LLMRouter(redis)
 
