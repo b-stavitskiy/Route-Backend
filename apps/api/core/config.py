@@ -110,6 +110,7 @@ class Settings(BaseSettings):
     # Provider API Keys
     minimax_api_key: str = ""
     opencode_api_key: str = ""
+    opencode_api_key_2: str = ""
     chutes_api_key: str = ""
     zai_api_key: str = ""
     openrouter_api_key: str = Field(default="", alias="OPENROUTER_FREE_API_KEY")

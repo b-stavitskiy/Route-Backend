@@ -1,4 +1,6 @@
+import asyncio
 import os
+import threading
 from typing import Any
 
 import httpx
@@ -12,6 +14,177 @@ class MiniMaxProvider(OpenAICompatProvider):
             name="minimax",
             api_key=os.environ.get("MINIMAX_API_KEY", ""),
             base_url="https://api.minimax.io/v1",
+            timeout=300,
+            max_connections=100,
+        )
+
+
+class OpenRouterProvider(OpenAICompatProvider):
+    def __init__(self, api_key_name: str = "OPENROUTER_FREE_API_KEY"):
+        super().__init__(
+            name="openrouter",
+            api_key=os.environ.get(api_key_name, ""),
+            base_url="https://openrouter.ai/api/v1",
+            timeout=300,
+            max_connections=50,
+        )
+
+
+class OpenRouterXiaomiProvider(OpenAICompatProvider):
+    def __init__(self):
+        super().__init__(
+            name="openrouter_xiaomi",
+            api_key=os.environ.get("OPENROUTER_XIAOMI_API_KEY", ""),
+            base_url="https://openrouter.ai/api/v1",
+            timeout=300,
+            max_connections=50,
+        )
+
+
+class OpenRouterDeepSeekProvider(OpenAICompatProvider):
+    def __init__(self):
+        super().__init__(
+            name="openrouter_deepseek",
+            api_key=os.environ.get("OPENROUTER_DEEPSEK_API_KEY", ""),
+            base_url="https://openrouter.ai/api/v1",
+            timeout=300,
+            max_connections=50,
+        )
+
+
+class OpenRouterGrokProvider(OpenAICompatProvider):
+    def __init__(self):
+        super().__init__(
+            name="openrouter_grok",
+            api_key=os.environ.get("OPENROUTER_GROK_API_KEY", ""),
+            base_url="https://openrouter.ai/api/v1",
+            timeout=300,
+            max_connections=50,
+        )
+
+
+_opencode_api_keys: list[str] = []
+_opencode_key_index: int = 0
+_opencode_lock = threading.Lock()
+
+
+def _init_opencode_keys() -> None:
+    global _opencode_api_keys
+    if not _opencode_api_keys:
+        key1 = os.environ.get("OPENCODE_API_KEY", "")
+        key2 = os.environ.get("OPENCODE_API_KEY_2", "")
+        _opencode_api_keys = [k for k in [key1, key2] if k]
+        if not _opencode_api_keys:
+            _opencode_api_keys = [""]
+
+
+def _get_next_opencode_key() -> str:
+    global _opencode_key_index
+    _init_opencode_keys()
+
+    if len(_opencode_api_keys) <= 1:
+        return _opencode_api_keys[0]
+
+    with _opencode_lock:
+        key = _opencode_api_keys[_opencode_key_index]
+        _opencode_key_index = (_opencode_key_index + 1) % len(_opencode_api_keys)
+    return key
+
+
+_opencode_chat_providers: list[OpenAICompatProvider] = []
+_opencode_message_providers: list[AnthropicCompatProvider] = []
+_opencode_provider_index: int = 0
+
+
+def _get_opencode_chat_provider() -> OpenAICompatProvider:
+    global _opencode_chat_providers, _opencode_provider_index, _opencode_api_keys
+    _init_opencode_keys()
+
+    num_keys = len(_opencode_api_keys) or 1
+    if not _opencode_chat_providers:
+        _opencode_chat_providers = [OpenCodeChatProvider(api_key=key) for key in _opencode_api_keys]
+
+    if len(_opencode_chat_providers) == 1:
+        return _opencode_chat_providers[0]
+
+    with _opencode_lock:
+        provider = _opencode_chat_providers[
+            _opencode_provider_index % len(_opencode_chat_providers)
+        ]
+        _opencode_provider_index = (_opencode_provider_index + 1) % len(_opencode_chat_providers)
+    return provider
+
+
+def _get_opencode_message_provider() -> AnthropicCompatProvider:
+    global _opencode_message_providers, _opencode_provider_index, _opencode_api_keys
+    _init_opencode_keys()
+
+    if not _opencode_message_providers:
+        _opencode_message_providers = [
+            OpenCodeMessagesProvider(api_key=key) for key in _opencode_api_keys
+        ]
+
+    if len(_opencode_message_providers) == 1:
+        return _opencode_message_providers[0]
+
+    with _opencode_lock:
+        provider = _opencode_message_providers[
+            _opencode_provider_index % len(_opencode_message_providers)
+        ]
+        _opencode_provider_index = (_opencode_provider_index + 1) % len(_opencode_message_providers)
+    return provider
+
+
+class OpenCodeChatProvider(OpenAICompatProvider):
+    def __init__(self, api_key: str = ""):
+        super().__init__(
+            name="opencode",
+            api_key=api_key or _get_next_opencode_key(),
+            base_url="https://opencode.ai/zen/go/v1",
+            timeout=300,
+            max_connections=100,
+        )
+
+
+class OpenCodeMessagesProvider(AnthropicCompatProvider):
+    def __init__(self, api_key: str = ""):
+        super().__init__(
+            name="opencode",
+            api_key=api_key or _get_next_opencode_key(),
+            base_url="https://opencode.ai/zen/go/v1",
+            timeout=300,
+            max_connections=100,
+        )
+
+
+class ChutesProvider(OpenAICompatProvider):
+    def __init__(self):
+        super().__init__(
+            name="chutes",
+            api_key=os.environ.get("CHUTES_API_KEY", ""),
+            base_url="https://llm.chutes.ai/v1",
+            timeout=300,
+            max_connections=100,
+        )
+
+
+class ZAIProvider(OpenAICompatProvider):
+    def __init__(self):
+        super().__init__(
+            name="zai",
+            api_key=os.environ.get("ZAI_API_KEY", ""),
+            base_url="https://api.z.ai/api/paas/v4",
+            timeout=300,
+            max_connections=100,
+        )
+
+
+class CrofProvider(OpenAICompatProvider):
+    def __init__(self):
+        super().__init__(
+            name="crof",
+            api_key=os.environ.get("CROF_API_KEY", ""),
+            base_url="https://crof.ai/v1",
             timeout=300,
             max_connections=100,
         )
@@ -62,14 +235,35 @@ class OpenRouterGrokProvider(OpenAICompatProvider):
 
 
 class OpenCodeChatProvider(OpenAICompatProvider):
+    _api_keys: list[str] = []
+    _current_index: int = 0
+    _lock: asyncio.Lock | None = None
+
     def __init__(self):
+        if OpenCodeChatProvider._lock is None:
+            OpenCodeChatProvider._lock = asyncio.Lock()
+        if not OpenCodeChatProvider._api_keys:
+            key1 = os.environ.get("OPENCODE_API_KEY", "")
+            key2 = os.environ.get("OPENCODE_API_KEY_2", "")
+            OpenCodeChatProvider._api_keys = [k for k in [key1, key2] if k]
+            if not OpenCodeChatProvider._api_keys:
+                OpenCodeChatProvider._api_keys = [""]
         super().__init__(
             name="opencode",
-            api_key=os.environ.get("OPENCODE_API_KEY", ""),
+            api_key=self._get_next_key(),
             base_url="https://opencode.ai/zen/go/v1",
             timeout=300,
             max_connections=100,
         )
+
+    def _get_next_key(self) -> str:
+        if len(OpenCodeChatProvider._api_keys) <= 1:
+            return OpenCodeChatProvider._api_keys[0]
+        key = OpenCodeChatProvider._api_keys[OpenCodeChatProvider._current_index]
+        OpenCodeChatProvider._current_index = (OpenCodeChatProvider._current_index + 1) % len(
+            OpenCodeChatProvider._api_keys
+        )
+        return key
 
 
 class OpenCodeMessagesProvider(AnthropicCompatProvider):
@@ -244,17 +438,18 @@ def get_provider(name: str) -> OpenAICompatProvider | AnthropicCompatProvider:
 def get_provider_for_model(
     provider_name: str, model_id: str
 ) -> OpenAICompatProvider | AnthropicCompatProvider | MiniMaxImageProvider:
+    if provider_name == "opencode":
+        if model_id in ["minimax-m2.7", "minimax-m2.5"]:
+            return _get_opencode_message_provider()
+        else:
+            return _get_opencode_chat_provider()
+
     cache_key = f"{provider_name}:{model_id}"
     if cache_key in _provider_cache:
         return _provider_cache[cache_key]
 
     provider_instance: OpenAICompatProvider | AnthropicCompatProvider | MiniMaxImageProvider
-    if provider_name == "opencode":
-        if model_id in ["minimax-m2.7", "minimax-m2.5"]:
-            provider_instance = OpenCodeMessagesProvider()
-        else:
-            provider_instance = OpenCodeChatProvider()
-    elif provider_name == "openrouter_xiaomi":
+    if provider_name == "openrouter_xiaomi":
         provider_instance = OpenRouterXiaomiProvider()
     elif provider_name == "openrouter_deepseek":
         provider_instance = OpenRouterDeepSeekProvider()
