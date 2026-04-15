@@ -234,49 +234,6 @@ class OpenRouterGrokProvider(OpenAICompatProvider):
         )
 
 
-class OpenCodeChatProvider(OpenAICompatProvider):
-    _api_keys: list[str] = []
-    _current_index: int = 0
-    _lock: asyncio.Lock | None = None
-
-    def __init__(self):
-        if OpenCodeChatProvider._lock is None:
-            OpenCodeChatProvider._lock = asyncio.Lock()
-        if not OpenCodeChatProvider._api_keys:
-            key1 = os.environ.get("OPENCODE_API_KEY", "")
-            key2 = os.environ.get("OPENCODE_API_KEY_2", "")
-            OpenCodeChatProvider._api_keys = [k for k in [key1, key2] if k]
-            if not OpenCodeChatProvider._api_keys:
-                OpenCodeChatProvider._api_keys = [""]
-        super().__init__(
-            name="opencode",
-            api_key=self._get_next_key(),
-            base_url="https://opencode.ai/zen/go/v1",
-            timeout=300,
-            max_connections=100,
-        )
-
-    def _get_next_key(self) -> str:
-        if len(OpenCodeChatProvider._api_keys) <= 1:
-            return OpenCodeChatProvider._api_keys[0]
-        key = OpenCodeChatProvider._api_keys[OpenCodeChatProvider._current_index]
-        OpenCodeChatProvider._current_index = (OpenCodeChatProvider._current_index + 1) % len(
-            OpenCodeChatProvider._api_keys
-        )
-        return key
-
-
-class OpenCodeMessagesProvider(AnthropicCompatProvider):
-    def __init__(self):
-        super().__init__(
-            name="opencode",
-            api_key=os.environ.get("OPENCODE_API_KEY", ""),
-            base_url="https://opencode.ai/zen/go/v1",
-            timeout=300,
-            max_connections=100,
-        )
-
-
 class ChutesProvider(OpenAICompatProvider):
     def __init__(self):
         super().__init__(
