@@ -471,11 +471,7 @@ async def chat_completions(
             model=body.model,
             provider=response.get("provider", "unknown"),
             prompt=None,
-            response=json.dumps(
-                response.get("choices", [{}])[0].get("message", {}).get("content")
-                if response.get("choices")
-                else None
-            ),
+            response=None,
             response_model=response.get("model"),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -504,6 +500,5 @@ async def chat_completions(
         f"output_tokens={output_tokens} | latency_ms={response.get('latency_ms')} | "
         f"component=chat"
     )
-    logger.info(f"Response body: {response}")
 
     return response
