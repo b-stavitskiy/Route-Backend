@@ -155,22 +155,10 @@ async def handle_membership_deactivated(
         logger.warning("membership.deactivated: missing email and user_id")
         return
 
-    logger.info(f"membership.deactivated: email={email}, user_id={user_id}")
-
-    if email:
-        user = await auth_service.get_user_by_email(email)
-        if user:
-            user.plan_tier = PlanTier.FREE
-            await session.commit()
-            logger.info(f"Downgraded user {user.id} to FREE")
-            return
-
-    if user_id:
-        user = await auth_service.get_user_by_whop_id(user_id)
-        if user:
-            user.plan_tier = PlanTier.FREE
-            await session.commit()
-            logger.info(f"Downgraded user {user.id} by whop_user_id to FREE")
+    logger.info(
+        f"membership.deactivated: email={email}, user_id={user_id}. "
+        "Access is controlled by upgraded_until, not downgrading here."
+    )
 
 
 async def handle_membership_cancel_at_period_end_changed(
