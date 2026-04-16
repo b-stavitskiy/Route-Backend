@@ -299,7 +299,7 @@ async def stream_generator(
                     user_id=UUID(user_id),
                     model=model,
                     provider=provider,
-                    prompt=json.dumps(messages),
+                    prompt=None,
                     response=None,
                     response_model=model,
                     input_tokens=input_tokens,
@@ -470,7 +470,7 @@ async def chat_completions(
             user_id=UUID(user_id),
             model=body.model,
             provider=response.get("provider", "unknown"),
-            prompt=json.dumps(messages),
+            prompt=None,
             response=json.dumps(
                 response.get("choices", [{}])[0].get("message", {}).get("content")
                 if response.get("choices")
