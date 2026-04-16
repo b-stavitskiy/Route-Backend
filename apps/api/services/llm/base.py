@@ -265,13 +265,6 @@ class OpenAICompatProvider(BaseLLMProvider):
 
             if response.status_code == 200:
                 result = response.json()
-                tool_calls = result.get("choices", [{}])[0].get("message", {}).get("tool_calls")
-                if tool_calls:
-                    for tc in tool_calls:
-                        logger.info(
-                            f"Non-streaming tool_calls from {self.name}: id={tc.get('id')} | "
-                            f"name={tc.get('function', {}).get('name')}"
-                        )
                 return result
             elif response.status_code == 429:
                 raise ProviderError("Rate limited", self.name)
@@ -308,14 +301,6 @@ class OpenAICompatProvider(BaseLLMProvider):
 
         if max_tokens:
             payload["max_tokens"] = max_tokens
-
-        tool_result_msgs = [m for m in messages if m.get("role") == "tool"]
-        if tool_result_msgs:
-            for msg in tool_result_msgs:
-                logger.info(
-                    f"Tool result message: tool_call_id={msg.get('tool_call_id')} | "
-                    f"provider={self.name} | content_length={len(str(msg.get('content', '')))}"
-                )
 
         tools = kwargs.get("tools")
         if tools:

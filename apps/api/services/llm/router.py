@@ -53,7 +53,12 @@ def _count_tokens(text: str) -> int:
 def _count_message_tokens(msg: dict[str, Any]) -> int:
     base = 3
     base += _count_tokens(msg.get("role", ""))
-    base += _count_tokens(msg.get("content", ""))
+    content = msg.get("content", "")
+    if isinstance(content, list):
+        content = json.dumps(content, separators=(",", ":"))
+    else:
+        content = str(content)
+    base += _count_tokens(content)
     if msg.get("tool_call_id"):
         base += _count_tokens(msg.get("tool_call_id", ""))
     tc = msg.get("tool_calls", [])
@@ -72,6 +77,11 @@ def truncate_messages(
 ) -> list[dict[str, Any]]:
     if not messages:
         return messages
+
+    if len(messages) <= 12:
+        total_chars = sum(len(str(m.get("content", ""))) for m in messages)
+        if total_chars < 16000:
+            return messages
 
     if len(messages) <= max_messages:
         total_chars = sum(len(str(m.get("content", ""))) for m in messages)
@@ -230,17 +240,14 @@ class LLMRouter:
 
         has_tool_results = any(m.get("role") == "tool" for m in messages)
         if has_tool_results:
-            logger.info(
-                "Tool results detected in request, routing to first provider only | "
-                "component=router"
-            )
             provider_chain = [provider_chain[0]] if provider_chain else []
             retry_count = 0
 
-        logger.info(
-            f"Routing chat request | model={model} | plan={user_plan} | request_id={request_id} | "
-            f"providers={len(provider_chain)} | max_retries={retry_count}",
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Routing chat request | model={model} | plan={user_plan} | request_id={request_id} | "
+                f"providers={len(provider_chain)} | max_retries={retry_count}",
+            )
 
         last_error: Exception | None = None
 
@@ -257,11 +264,6 @@ class LLMRouter:
 
                 try:
                     client = await self.get_provider_client(provider_name, model_id)
-
-                    logger.info(
-                        f"Calling provider | provider={provider_name} | "
-                        f"model={model_id} | attempt={attempt + 1}",
-                    )
 
                     start_time = time.time()
                     response = await client.chat_complete(
@@ -281,11 +283,6 @@ class LLMRouter:
                     response["provider"] = provider_name
                     response["model"] = model
                     response["latency_ms"] = latency_ms
-
-                    logger.info(
-                        f"Provider response success | provider={provider_name} | "
-                        f"model={model_id} | latency_ms={latency_ms}",
-                    )
 
                     return sanitize_response(response)
 

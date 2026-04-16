@@ -11,7 +11,7 @@ async def store_tool_calls_in_redis(
     key = f"tool_calls:{user_id}:{request_id}"
     data = json.dumps(tool_calls)
     await redis.set(key, data, ex=300)
-    logger.info(f"Stored tool_calls in Redis: {key} count={len(tool_calls)}")
+    logger.debug(f"Stored tool_calls in Redis: {key} count={len(tool_calls)}")
 
 
 async def get_tool_calls_from_redis(redis, user_id: str, request_id: str) -> list[dict[str, Any]]:
@@ -33,15 +33,10 @@ async def map_tool_result_id(
 
     for tc in tool_calls:
         if tc.get("client_id") == client_tool_call_id:
-            logger.info(
-                f"Found mapping: client_id={client_tool_call_id} -> provider_id={tc.get('id')}"
-            )
             return tc.get("id", client_tool_call_id)
 
     if tool_result_index < len(tool_calls):
-        stored_id = tool_calls[tool_result_index].get("id", client_tool_call_id)
-        logger.info(f"Using index mapping: index={tool_result_index} -> id={stored_id}")
-        return stored_id
+        return tool_calls[tool_result_index].get("id", client_tool_call_id)
 
     logger.warning(f"No mapping found for client_id={client_tool_call_id}, returning as-is")
     return client_tool_call_id
@@ -53,7 +48,7 @@ async def store_streaming_tool_calls(
     key = f"streaming_tool_calls:{user_id}:{request_id}"
     data = json.dumps(tool_calls)
     await redis.set(key, data, ex=300)
-    logger.info(f"Stored streaming tool_calls: {key} count={len(tool_calls)}")
+    logger.debug(f"Stored streaming tool_calls: {key} count={len(tool_calls)}")
 
 
 async def get_streaming_tool_calls(redis, user_id: str, request_id: str) -> list[dict[str, Any]]:
@@ -74,9 +69,7 @@ async def map_streaming_tool_result(
         return tool_call_id
 
     if tool_result_index < len(streaming_tcs):
-        original_id = streaming_tcs[tool_result_index].get("id", tool_call_id)
-        logger.info(f"Streaming ID mapping: index={tool_result_index} original_id={original_id}")
-        return original_id
+        return streaming_tcs[tool_result_index].get("id", tool_call_id)
 
     logger.warning(
         f"Index {tool_result_index} out of range for streaming tool_calls "
@@ -95,15 +88,11 @@ class ToolCallMapper:
         provider_id = tool_call.get("id", "")
         self._provider_tool_calls.append(tool_call)
         self._index_to_provider_id[index] = provider_id
-        logger.info(f"ToolCallMapper: stored provider tool_call id={provider_id} at index={index}")
 
     def map_client_id_to_provider(self, client_id: str, index: int) -> str:
         if index in self._index_to_provider_id:
             provider_id = self._index_to_provider_id[index]
             self._client_to_provider_map[client_id] = provider_id
-            logger.info(
-                f"ToolCallMapper: mapped client_id={client_id} to provider_id={provider_id}"
-            )
             return provider_id
 
         if client_id in self._client_to_provider_map:

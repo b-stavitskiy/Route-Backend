@@ -206,15 +206,16 @@ class UsageTracker:
         request_id = f"{user_id}:{int(time.time() * 1000)}"
 
         daily_key = f"usage:daily:{user_id}:{time.strftime('%Y-%m-%d')}"
-
-        await self.cache.hincrby(daily_key, f"{model}:input_tokens", input_tokens)
-        await self.cache.hincrby(daily_key, f"{model}:output_tokens", output_tokens)
-        await self.cache.hincrby(daily_key, f"{model}:requests", 1)
-        await self.cache.expire(daily_key, 172800)
-
         hourly_key = f"usage:hourly:{user_id}:{time.strftime('%Y-%m-%d:%H')}"
-        await self.cache.hincrby(hourly_key, f"{model}:requests", 1)
-        await self.cache.expire(hourly_key, 7200)
+
+        pipe = self.redis.pipeline()
+        pipe.hincrby(daily_key, f"{model}:input_tokens", input_tokens)
+        pipe.hincrby(daily_key, f"{model}:output_tokens", output_tokens)
+        pipe.hincrby(daily_key, f"{model}:requests", 1)
+        pipe.expire(daily_key, 172800)
+        pipe.hincrby(hourly_key, f"{model}:requests", 1)
+        pipe.expire(hourly_key, 7200)
+        await pipe.execute()
 
         return request_id
 
@@ -230,13 +231,14 @@ class UsageTracker:
         request_id = f"{user_id}:{int(time.time() * 1000)}"
 
         daily_key = f"usage:daily:{user_id}:{time.strftime('%Y-%m-%d')}"
-
-        await self.cache.hincrby(daily_key, f"{model}:image_requests", 1)
-        await self.cache.expire(daily_key, 172800)
-
         hourly_key = f"usage:hourly:{user_id}:{time.strftime('%Y-%m-%d:%H')}"
-        await self.cache.hincrby(hourly_key, f"{model}:image_requests", 1)
-        await self.cache.expire(hourly_key, 7200)
+
+        pipe = self.redis.pipeline()
+        pipe.hincrby(daily_key, f"{model}:image_requests", 1)
+        pipe.expire(daily_key, 172800)
+        pipe.hincrby(hourly_key, f"{model}:image_requests", 1)
+        pipe.expire(hourly_key, 7200)
+        await pipe.execute()
 
         return request_id
 

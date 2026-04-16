@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import time
 from collections.abc import Callable
 
 from fastapi import Request, Response
@@ -349,7 +350,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
             try:
                 payload = await verify_access_token(token)
+                request.state.token_payload = payload
                 request.state.user_id = payload.get("sub")
+                request.state.plan = payload.get("plan", "free")
                 return await call_next(request)
             except AuthenticationError:
                 return JSONResponse(
@@ -372,11 +375,14 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable,
     ) -> Response:
-        start_time = getattr(request.state, "start_time", None)
-        if start_time is None:
-            start_time = 0
+        start_time = time.perf_counter()
+        request.state.start_time = start_time
 
         response = await call_next(request)
+
+        timings = getattr(request.state, "timings", None)
+        if timings is not None:
+            timings["middleware_total"] = int((time.perf_counter() - start_time) * 1000)
 
         return response
 
