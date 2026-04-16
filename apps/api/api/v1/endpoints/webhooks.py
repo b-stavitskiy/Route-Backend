@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -90,6 +91,7 @@ async def handle_membership_activated(
     user_id = attributes.get("user_id")
     plan_id = attributes.get("plan_id")
     steaml = attributes.get("steaml", False)
+    expired_at = attributes.get("expired_at")
 
     if not email and not user_id:
         logger.warning("membership.activated: missing email and user_id")
@@ -100,13 +102,26 @@ async def handle_membership_activated(
         f"membership.activated: email={email}, user_id={user_id}, plan={plan_tier}, steaml={steaml}"
     )
 
+    if expired_at:
+        try:
+            expiry_date = datetime.fromisoformat(expired_at.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            expiry_date = datetime.now(timezone.utc) + timedelta(days=30)
+    else:
+        expiry_date = datetime.now(timezone.utc) + timedelta(days=30)
+
+    async def update_user(user):
+        user.whop_user_id = user_id
+        user.plan_tier = plan_tier
+        user.upgraded_to_tier = plan_tier
+        user.upgraded_until = expiry_date
+        await session.commit()
+        logger.info(f"Updated user {user.id} to plan {plan_tier} (expires={expiry_date})")
+
     if email:
         user = await auth_service.get_user_by_email(email)
         if user:
-            user.whop_user_id = user_id
-            user.plan_tier = plan_tier
-            await session.commit()
-            logger.info(f"Updated user {user.id} to plan {plan_tier} (steaml={steaml})")
+            await update_user(user)
             return
 
     if user_id:
@@ -117,9 +132,11 @@ async def handle_membership_activated(
             user = await auth_service_new.get_user_by_whop_id(user_id)
             if user:
                 user.plan_tier = plan_tier
+                user.upgraded_to_tier = plan_tier
+                user.upgraded_until = expiry_date
                 await new_session.commit()
                 logger.info(
-                    f"Updated user {user.id} by whop_user_id to plan {plan_tier} (steaml={steaml})"
+                    f"Updated user {user.id} by whop_user_id to plan {plan_tier} (expires={expiry_date})"
                 )
 
 
@@ -186,6 +203,34 @@ async def handle_payment_succeeded(
     plan_id = attributes.get("plan_id")
 
     logger.info(f"payment.succeeded: email={email}, user_id={user_id}, plan_id={plan_id}")
+
+    if not email and not user_id:
+        logger.warning("payment.succeeded: missing email and user_id")
+        return
+
+    plan_tier = get_plan_tier_from_whop(plan_id)
+    new_expiry = datetime.now(timezone.utc) + timedelta(days=30)
+
+    if email:
+        user = await auth_service.get_user_by_email(email)
+        if user:
+            user.plan_tier = plan_tier
+            user.upgraded_to_tier = plan_tier
+            user.upgraded_until = new_expiry
+            await session.commit()
+            logger.info(f"Renewed user {user.id} to plan {plan_tier} (expires={new_expiry})")
+            return
+
+    if user_id:
+        user = await auth_service.get_user_by_whop_id(user_id)
+        if user:
+            user.plan_tier = plan_tier
+            user.upgraded_to_tier = plan_tier
+            user.upgraded_until = new_expiry
+            await session.commit()
+            logger.info(
+                f"Renewed user {user.id} by whop_user_id to plan {plan_tier} (expires={new_expiry})"
+            )
 
 
 async def handle_payment_failed(
