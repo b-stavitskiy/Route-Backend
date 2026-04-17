@@ -221,19 +221,6 @@ def serialize_user(user: User) -> AdminUserResponse:
     )
 
 
-def make_admin_tokens(user: User) -> tuple[str, str]:
-    access_token = create_access_token(
-        subject=str(user.id),
-        additional_claims={
-            "plan": get_effective_plan_tier(user).value,
-            "is_superuser": True,
-            "scope": "admin",
-        },
-    )
-    refresh_token = create_refresh_token(subject=str(user.id))
-    return access_token, refresh_token
-
-
 def make_service_admin_tokens() -> tuple[str, str]:
     subject = "admin-service"
     access_token = create_access_token(
@@ -416,54 +403,22 @@ async def admin_refresh(body: RefreshRequest, request: Request):
 
     if not user_id:
         raise AuthenticationError("Invalid refresh token")
-    if user_id == "admin-service":
-        if payload.get("auth_mode") != "admin_api_key":
-            raise AuthenticationError("Invalid admin refresh token")
-        if jti and await is_refresh_token_used(jti):
-            raise AuthenticationError("Refresh token reuse detected")
-        if not await has_admin_refresh_session(body.refresh_token):
-            raise AuthenticationError("Admin refresh session not found")
-        if jti:
-            await blacklist_refresh_token(jti, user_id)
-        await revoke_admin_refresh_session(body.refresh_token)
-        access_token, refresh_token = make_service_admin_tokens()
-        await store_admin_refresh_session(refresh_token)
-        return AdminAuthResponse(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            user=None,
-        )
+    if user_id != "admin-service" or payload.get("auth_mode") != "admin_api_key":
+        raise AuthenticationError("Only admin API key refresh sessions are allowed")
     if jti and await is_refresh_token_used(jti):
         raise AuthenticationError("Refresh token reuse detected")
+    if not await has_admin_refresh_session(body.refresh_token):
+        raise AuthenticationError("Admin refresh session not found")
     if jti:
         await blacklist_refresh_token(jti, user_id)
-
-    async with get_db_session() as session:
-        result = await session.execute(
-            select(Session).where(
-                Session.user_id == UUID(user_id),
-                Session.refresh_token_hash == hash_api_key(body.refresh_token),
-                Session.expires_at > utcnow(),
-            )
-        )
-        session_row = result.scalar_one_or_none()
-        if not session_row:
-            raise AuthenticationError("Refresh session not found")
-
-        user = await get_user_or_404(session, user_id)
-        if not user.is_superuser:
-            raise AuthorizationError("Admin access required")
-
-        await session.delete(session_row)
-        access_token, refresh_token = make_admin_tokens(user)
-        await create_session_row(session, user.id, refresh_token, request)
-        await session.commit()
-        await session.refresh(user)
+    await revoke_admin_refresh_session(body.refresh_token)
+    access_token, refresh_token = make_service_admin_tokens()
+    await store_admin_refresh_session(refresh_token)
 
     return AdminAuthResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        user=serialize_user(user),
+        user=None,
     )
 
 
