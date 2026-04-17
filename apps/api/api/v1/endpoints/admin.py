@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import case, delete, distinct, func, or_, select
 
@@ -21,14 +21,12 @@ from apps.api.core.security import (
     is_refresh_token_used,
     verify_refresh_token,
 )
-from apps.api.services.auth_service import AuthService
 from packages.db.models import AdminAuditLog, ApiKey, PlanTier, Session, UsageLog, User
 from packages.db.session import get_db_session
 from packages.redis.client import get_redis
 from packages.shared.exceptions import (
     AuthenticationError,
     AuthorizationError,
-    DuplicateResourceError,
     NotFoundError,
     ValidationError,
 )
@@ -251,6 +249,26 @@ def make_service_admin_tokens() -> tuple[str, str]:
     return access_token, refresh_token
 
 
+async def store_admin_refresh_session(refresh_token: str) -> None:
+    redis = await get_redis()
+    settings = get_settings()
+    await redis.setex(
+        f"admin:refresh:{hash_api_key(refresh_token)}",
+        settings.refresh_token_expire_days * 24 * 60 * 60,
+        "1",
+    )
+
+
+async def has_admin_refresh_session(refresh_token: str) -> bool:
+    redis = await get_redis()
+    return await redis.exists(f"admin:refresh:{hash_api_key(refresh_token)}") == 1
+
+
+async def revoke_admin_refresh_session(refresh_token: str) -> None:
+    redis = await get_redis()
+    await redis.delete(f"admin:refresh:{hash_api_key(refresh_token)}")
+
+
 async def create_session_row(
     session,
     user_id: UUID | None,
@@ -381,6 +399,7 @@ async def admin_login(body: AdminApiKeyLoginRequest, request: Request):
         raise AuthenticationError("Invalid admin API key")
 
     access_token, refresh_token = make_service_admin_tokens()
+    await store_admin_refresh_session(refresh_token)
 
     return AdminAuthResponse(
         access_token=access_token,
@@ -398,11 +417,17 @@ async def admin_refresh(body: RefreshRequest, request: Request):
     if not user_id:
         raise AuthenticationError("Invalid refresh token")
     if user_id == "admin-service":
+        if payload.get("auth_mode") != "admin_api_key":
+            raise AuthenticationError("Invalid admin refresh token")
         if jti and await is_refresh_token_used(jti):
             raise AuthenticationError("Refresh token reuse detected")
+        if not await has_admin_refresh_session(body.refresh_token):
+            raise AuthenticationError("Admin refresh session not found")
         if jti:
             await blacklist_refresh_token(jti, user_id)
+        await revoke_admin_refresh_session(body.refresh_token)
         access_token, refresh_token = make_service_admin_tokens()
+        await store_admin_refresh_session(refresh_token)
         return AdminAuthResponse(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -458,6 +483,7 @@ async def admin_logout(
             await blacklist_token(jti, remaining)
 
     async with get_db_session() as session:
+        await revoke_admin_refresh_session(body.refresh_token)
         await session.execute(
             delete(Session).where(
                 Session.refresh_token_hash == hash_api_key(body.refresh_token),

@@ -47,6 +47,9 @@ GLOBAL_RATE_LIMIT: tuple[int, int] = (3000, 60)
 
 AUTH_STRICT_PATHS = frozenset(
     {
+        "/v1/admin/auth/login",
+        "/v1/admin/auth/refresh",
+        "/v1/admin/auth/logout",
         "/auth/signup/init",
         "/auth/signup/verify",
         "/auth/login/init",
@@ -116,6 +119,7 @@ def classify_path(path: str) -> str:
 
 
 RESTRICTED_ORIGIN_PATHS = (
+    "/v1/admin/auth",
     "/auth/signup",
     "/auth/login",
     "/auth/forgot-password",
@@ -304,7 +308,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         public_paths = {
             "/",
             "/health",
-            "/v1/admin/auth/bootstrap",
             "/v1/admin/auth/login",
             "/v1/admin/auth/refresh",
             "/auth/signup/init",

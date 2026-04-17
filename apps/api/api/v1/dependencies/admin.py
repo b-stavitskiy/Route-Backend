@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 
-from fastapi import Header, Request
+from fastapi import Request
 from sqlalchemy import select
 
-from apps.api.core.config import get_settings
 from apps.api.core.security import verify_access_token
 from packages.db.models import User
 from packages.db.session import get_db_session
@@ -22,13 +21,7 @@ class AdminContext:
 
 async def get_current_admin(
     request: Request,
-    x_admin_api_key: str | None = Header(default=None, alias="X-Admin-Api-Key"),
 ) -> AdminContext:
-    settings = get_settings()
-
-    if settings.admin_api_key and x_admin_api_key == settings.admin_api_key:
-        return AdminContext(user=None, is_service=True)
-
     auth_header = request.headers.get("Authorization", "")
     token = None
     if auth_header.startswith("Bearer "):
@@ -43,7 +36,11 @@ async def get_current_admin(
     user_id = payload.get("sub")
     if not user_id:
         raise AuthenticationError("Invalid admin token")
-    if user_id == "admin-service" and payload.get("scope") == "admin":
+    if (
+        user_id == "admin-service"
+        and payload.get("scope") == "admin"
+        and payload.get("auth_mode") == "admin_api_key"
+    ):
         return AdminContext(user=None, is_service=True)
 
     async with get_db_session() as session:
