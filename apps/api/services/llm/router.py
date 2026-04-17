@@ -26,6 +26,10 @@ logger = logging.getLogger("routing.run.router")
 
 MAX_MESSAGES = 50
 MAX_TOKENS = 200000
+PREFERRED_PROVIDER_ORDER: dict[str, list[str]] = {
+    "route/glm-5": ["opencode", "crof"],
+    "route/glm-5.1": ["opencode", "crof"],
+}
 
 _encoders: dict[str, Any] = {}
 
@@ -218,6 +222,46 @@ class LLMRouter:
             self._provider_clients[key] = get_provider_for_model(provider_name, model_id)
         return self._provider_clients[key]
 
+    async def _prioritize_provider_chain(
+        self, model: str, provider_chain: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        if len(provider_chain) <= 1:
+            return provider_chain
+
+        preferred_order = PREFERRED_PROVIDER_ORDER.get(model)
+        if preferred_order:
+            provider_chain = sorted(
+                provider_chain,
+                key=lambda entry: (
+                    preferred_order.index(entry["provider"])
+                    if entry["provider"] in preferred_order
+                    else len(preferred_order)
+                ),
+            )
+
+        provider_stats: list[tuple[int, int, int, dict[str, Any]]] = []
+        for index, provider_entry in enumerate(provider_chain):
+            provider_name = provider_entry["provider"]
+            health_key = f"provider:{provider_name}:health"
+            latency_key = f"provider:{provider_name}:latency"
+
+            health_data, latency_data = await asyncio.gather(
+                self.cache.get(health_key),
+                self.cache.get(latency_key),
+            )
+
+            if health_data == "healthy":
+                health_rank = 0
+            elif health_data in (None, "unknown"):
+                health_rank = 1
+            else:
+                health_rank = 2
+            latency_rank = int(latency_data) if latency_data else 10**9
+            provider_stats.append((health_rank, latency_rank, index, provider_entry))
+
+        provider_stats.sort(key=lambda item: (item[0], item[1], item[2]))
+        return [item[3] for item in provider_stats]
+
     async def route_chat_complete(
         self,
         model: str,
@@ -234,6 +278,8 @@ class LLMRouter:
         if not provider_chain:
             logger.warning(f"No provider chain found for model={model} plan={user_plan}")
             raise InvalidModelError(model)
+
+        provider_chain = await self._prioritize_provider_chain(model, provider_chain)
 
         routing_config = self.provider_config.get_routing_config()
         retry_count = routing_config.get("retry_count", 2)
@@ -360,6 +406,8 @@ class LLMRouter:
         if not provider_chain:
             logger.warning(f"No provider chain found for model={model} plan={user_plan}")
             raise InvalidModelError(model)
+
+        provider_chain = await self._prioritize_provider_chain(model, provider_chain)
 
         routing_config = self.provider_config.get_routing_config()
         retry_count = routing_config.get("retry_count", 2)
