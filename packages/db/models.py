@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -17,6 +17,7 @@ class PlanTier(StrEnum):
     LITE = "lite"
     PREMIUM = "premium"
     MAX = "max"
+    PAYG = "payg"
 
 
 class User(Base):
@@ -59,6 +60,17 @@ class User(Base):
     )
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(
         "OAuthAccount", back_populates="user", cascade="all, delete-orphan"
+    )
+    admin_audit_logs: Mapped[list["AdminAuditLog"]] = relationship(
+        "AdminAuditLog",
+        back_populates="admin_user",
+        cascade="all, delete-orphan",
+        foreign_keys="AdminAuditLog.admin_user_id",
+    )
+    targeted_admin_audit_logs: Mapped[list["AdminAuditLog"]] = relationship(
+        "AdminAuditLog",
+        back_populates="target_user",
+        foreign_keys="AdminAuditLog.target_user_id",
     )
 
 
@@ -195,4 +207,38 @@ class ProviderHealth(Base):
     last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_logs"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    admin_user_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    target_user_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    entity_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    admin_user: Mapped["User | None"] = relationship(
+        "User", back_populates="admin_audit_logs", foreign_keys=[admin_user_id]
+    )
+    target_user: Mapped["User | None"] = relationship(
+        "User", back_populates="targeted_admin_audit_logs", foreign_keys=[target_user_id]
+    )
+
+    __table_args__ = (
+        Index("ix_admin_audit_logs_target_created", "target_user_id", "created_at"),
+        Index("ix_admin_audit_logs_action_created", "action", "created_at"),
     )

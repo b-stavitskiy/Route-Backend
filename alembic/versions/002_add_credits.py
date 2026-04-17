@@ -19,7 +19,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column("users", sa.Column("credits", sa.Float(), nullable=False, server_default="0.0"))
 
-    op.execute("ALTER TYPE plantier ADD VALUE IF NOT EXISTS 'payg'")
+    op.execute("ALTER TYPE plantier ADD VALUE IF NOT EXISTS 'PAYG'")
 
 
 def downgrade() -> None:

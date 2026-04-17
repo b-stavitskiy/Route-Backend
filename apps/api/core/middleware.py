@@ -304,6 +304,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         public_paths = {
             "/",
             "/health",
+            "/v1/admin/auth/bootstrap",
+            "/v1/admin/auth/login",
+            "/v1/admin/auth/refresh",
             "/auth/signup/init",
             "/auth/signup/verify",
             "/auth/login/init",

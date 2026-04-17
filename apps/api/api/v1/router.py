@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from apps.api.api.v1.endpoints import (
+    admin,
     anthropic,
     auth,
     chat,
@@ -14,6 +15,7 @@ from apps.api.api.v1.endpoints import (
 
 router = APIRouter()
 
+router.include_router(admin.router)
 router.include_router(anthropic.router)
 router.include_router(auth.router)
 router.include_router(chat.router)
