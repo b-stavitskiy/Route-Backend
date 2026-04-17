@@ -116,27 +116,6 @@ def truncate_messages(
 
 
 def sanitize_response(response: dict[str, Any]) -> dict[str, Any]:
-    try:
-        if "choices" in response:
-            for choice in response["choices"]:
-                if "message" in choice and "content" in choice["message"]:
-                    content = choice["message"]["content"]
-                    if isinstance(content, str) and (
-                        "\n" in content or "\r" in content or "\t" in content
-                    ):
-                        choice["message"]["content"] = (
-                            content.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
-                        )
-                if "delta" in choice and "content" in choice["delta"]:
-                    content = choice["delta"]["content"]
-                    if isinstance(content, str) and (
-                        "\n" in content or "\r" in content or "\t" in content
-                    ):
-                        choice["delta"]["content"] = (
-                            content.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
-                        )
-    except Exception:
-        pass
     return response
 
 
@@ -427,17 +406,6 @@ class LLMRouter:
                                 chunk["data"] = data
                             except json.JSONDecodeError:
                                 pass
-
-                        if isinstance(data, dict) and "choices" in data:
-                            for choice in data.get("choices", []):
-                                if "delta" in choice and "content" in choice["delta"]:
-                                    content = choice["delta"]["content"]
-                                    if isinstance(content, str):
-                                        choice["delta"]["content"] = (
-                                            content.replace("\r", "\\r")
-                                            .replace("\n", "\\n")
-                                            .replace("\t", "\\t")
-                                        )
 
                         chunk["request_id"] = request_id
                         chunk["provider"] = provider_name
