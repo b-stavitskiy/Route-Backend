@@ -265,6 +265,11 @@ class LLMRouter:
                 try:
                     client = await self.get_provider_client(provider_name, model_id)
 
+                    logger.info(
+                        f"Calling provider | provider={provider_name} | "
+                        f"model={model_id} | attempt={attempt + 1} | component=router"
+                    )
+
                     start_time = time.time()
                     response = await client.chat_complete(
                         model=model_id,
@@ -283,6 +288,11 @@ class LLMRouter:
                     response["provider"] = provider_name
                     response["model"] = model
                     response["latency_ms"] = latency_ms
+
+                    logger.info(
+                        f"Provider response success | provider={provider_name} | "
+                        f"model={model_id} | latency_ms={latency_ms} | component=router"
+                    )
 
                     return sanitize_response(response)
 
