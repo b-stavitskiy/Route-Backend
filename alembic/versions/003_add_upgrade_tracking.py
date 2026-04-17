@@ -21,7 +21,9 @@ def upgrade() -> None:
         "users",
         sa.Column(
             "upgraded_to_tier",
-            postgresql.ENUM("free", "lite", "premium", "max", name="plantier", create_type=False),
+            postgresql.ENUM(
+                "FREE", "LITE", "PREMIUM", "MAX", "PAYG", name="plantier", create_type=False
+            ),
             nullable=True,
         ),
     )
