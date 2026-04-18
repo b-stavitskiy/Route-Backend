@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
-from apps.api.core.config import get_provider_config, get_settings
+
+from apps.api.core.config import get_provider_config
 from apps.api.core.security import verify_access_token
 from apps.api.services.llm import LLMRouter
 from packages.redis.client import get_redis
@@ -29,17 +32,32 @@ async def resolve_api_key_plan(api_key: str) -> str | None:
     from packages.db.models import ApiKey
     from packages.db.session import get_db_session
     from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
 
     key_hash = hash_api_key(api_key)
     async with get_db_session() as session:
         result = await session.execute(
-            select(ApiKey).where(
+            select(ApiKey)
+            .where(
                 ApiKey.key_hash == key_hash,
                 ApiKey.is_active,
             )
+            .options(selectinload(ApiKey.user))
         )
         api_key_obj = result.scalar_one_or_none()
         if api_key_obj:
+            user = api_key_obj.user
+            if (
+                user
+                and user.upgraded_to_tier is not None
+                and user.upgraded_until is not None
+                and user.upgraded_until > datetime.now(UTC)
+            ):
+                return user.upgraded_to_tier.value
+
+            if user:
+                return user.plan_tier.value
+
             return api_key_obj.plan_tier.value
 
     return None
@@ -50,12 +68,10 @@ async def get_user_plan(request: Request) -> str:
 
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
-        settings = get_settings()
 
-        if token.startswith(settings.api_key_prefix):
-            api_key_plan = await resolve_api_key_plan(token)
-            if api_key_plan:
-                return api_key_plan
+        api_key_plan = await resolve_api_key_plan(token)
+        if api_key_plan:
+            return api_key_plan
 
         try:
             payload = await verify_access_token(token)
