@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import time
@@ -35,8 +34,10 @@ class MessageContent(BaseModel):
 
 class Message(BaseModel):
     role: str
-    content: str | list[MessageContent]
+    content: str | list[MessageContent] | None = None
     tool_call_id: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    name: str | None = None
 
 
 class Tool(BaseModel):
@@ -62,6 +63,51 @@ class UsageInfo(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+
+
+def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
+    normalized_tool_call = dict(tool_call)
+    function = normalized_tool_call.get("function")
+    if not isinstance(function, dict):
+        return normalized_tool_call
+
+    normalized_function = dict(function)
+    arguments = normalized_function.get("arguments")
+    if arguments is None:
+        normalized_function["arguments"] = "{}"
+    elif not isinstance(arguments, str):
+        try:
+            normalized_function["arguments"] = json.dumps(arguments)
+        except (TypeError, ValueError):
+            normalized_function["arguments"] = str(arguments)
+
+    normalized_tool_call["type"] = normalized_tool_call.get("type", "function")
+    normalized_tool_call["function"] = normalized_function
+    return normalized_tool_call
+
+
+def build_chat_message(message: Message) -> dict[str, Any]:
+    content = message.content
+    if isinstance(content, list):
+        content = [c.model_dump() if hasattr(c, "model_dump") else c for c in content]
+
+    msg: dict[str, Any] = {"role": message.role, "content": content}
+
+    if message.name is not None:
+        msg["name"] = message.name
+
+    if message.tool_calls is not None:
+        msg["tool_calls"] = [_normalize_tool_call(tool_call) for tool_call in message.tool_calls]
+
+    if message.tool_call_id is not None:
+        if message.role == "tool" and not message.tool_call_id:
+            raise HTTPException(
+                status_code=400,
+                detail="tool_call_id cannot be empty for tool results",
+            )
+        msg["tool_call_id"] = message.tool_call_id
+
+    return msg
 
 
 async def get_user_from_request(request: Request) -> tuple[str, str, str]:
@@ -354,19 +400,7 @@ async def chat_completions(
 
     router_instance = LLMRouter(redis)
 
-    messages = []
-    for m in body.messages:
-        content = m.content
-        if isinstance(content, list):
-            content = [c.model_dump() if hasattr(c, "model_dump") else c for c in content]
-        msg = {"role": m.role, "content": content}
-        if m.tool_call_id is not None:
-            if m.role == "tool" and not m.tool_call_id:
-                raise HTTPException(
-                    status_code=400, detail="tool_call_id cannot be empty for tool results"
-                )
-            msg["tool_call_id"] = m.tool_call_id
-        messages.append(msg)
+    messages = [build_chat_message(message) for message in body.messages]
 
     tool_result_msgs = [m for m in messages if m.get("role") == "tool"]
     if tool_result_msgs:
@@ -391,7 +425,8 @@ async def chat_completions(
     if len(messages) < original_msg_count:
         logger.info(
             f"Truncated messages from {original_msg_count} to {len(messages)} "
-            f"(context_size={context_size}, output_tokens_estimate={output_tokens_estimate}, available_for_input={available_for_input}) | component=router"
+            f"(context_size={context_size}, output_tokens_estimate={output_tokens_estimate}, "
+            f"available_for_input={available_for_input}) | component=router"
         )
 
     max_tokens = body.max_tokens
