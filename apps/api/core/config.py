@@ -111,6 +111,7 @@ class Settings(BaseSettings):
     minimax_api_key: str = ""
     opencode_api_key: str = ""
     opencode_api_key_2: str = ""
+    xiaomi_api_key: str = ""
     chutes_api_key: str = ""
     zai_api_key: str = ""
     openrouter_api_key: str = Field(default="", alias="OPENROUTER_FREE_API_KEY")

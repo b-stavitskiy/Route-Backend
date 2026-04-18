@@ -190,6 +190,17 @@ class CrofProvider(OpenAICompatProvider):
         )
 
 
+class XiaomiProvider(OpenAICompatProvider):
+    def __init__(self):
+        super().__init__(
+            name="xiaomi",
+            api_key=os.environ.get("XIAOMI_API_KEY", ""),
+            base_url="https://token-plan-sgp.xiaomimimo.com/v1",
+            timeout=300,
+            max_connections=100,
+        )
+
+
 class MiniMaxImageProvider:
     def __init__(self):
         self.name = "minimax_image"
@@ -297,6 +308,7 @@ PROVIDER_CLASSES = {
     "chutes": ChutesProvider,
     "zai": ZAIProvider,
     "crof": CrofProvider,
+    "xiaomi": XiaomiProvider,
 }
 
 _provider_cache: dict[

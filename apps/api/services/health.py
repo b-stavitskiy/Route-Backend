@@ -19,6 +19,7 @@ class HealthCheckService:
         env_to_settings = {
             "MINIMAX_API_KEY": "minimax_api_key",
             "OPENCODE_API_KEY": "opencode_api_key",
+            "XIAOMI_API_KEY": "xiaomi_api_key",
             "CHUTES_API_KEY": "chutes_api_key",
             "ZAI_API_KEY": "zai_api_key",
             "OPENROUTER_FREE_API_KEY": "openrouter_api_key",
