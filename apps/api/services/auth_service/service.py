@@ -107,10 +107,15 @@ class AuthService:
                 select(UserModel).where(UserModel.id == existing_oauth_account.user_id)
             )
             user = result.scalar_one()
+            if email and user.email != email:
+                user.email = email
             if avatar_url:
                 user.avatar_url = avatar_url
             if name:
                 user.name = name
+            if access_token:
+                existing_oauth_account.access_token = access_token
+            existing_oauth_account.refresh_token = refresh_token
             await self.session.flush()
             return user
 

@@ -111,12 +111,19 @@ async def handle_membership_activated(
         expiry_date = datetime.now(timezone.utc) + timedelta(days=30)
 
     async def update_user(user):
-        user.whop_user_id = user_id
+        if user_id:
+            user.whop_user_id = user_id
         user.plan_tier = plan_tier
         user.upgraded_to_tier = plan_tier
         user.upgraded_until = expiry_date
         await session.commit()
         logger.info(f"Updated user {user.id} to plan {plan_tier} (expires={expiry_date})")
+
+    if user_id:
+        user = await auth_service.get_user_by_whop_id(user_id)
+        if user:
+            await update_user(user)
+            return
 
     if email:
         user = await auth_service.get_user_by_email(email)
@@ -124,20 +131,11 @@ async def handle_membership_activated(
             await update_user(user)
             return
 
-    if user_id:
-        from packages.db.session import get_db_session
-
-        async with get_db_session() as new_session:
-            auth_service_new = AuthService(new_session)
-            user = await auth_service_new.get_user_by_whop_id(user_id)
-            if user:
-                user.plan_tier = plan_tier
-                user.upgraded_to_tier = plan_tier
-                user.upgraded_until = expiry_date
-                await new_session.commit()
-                logger.info(
-                    f"Updated user {user.id} by whop_user_id to plan {plan_tier} (expires={expiry_date})"
-                )
+    logger.warning(
+        "membership.activated: no matching user found for email=%s user_id=%s",
+        email,
+        user_id,
+    )
 
 
 async def handle_membership_deactivated(
@@ -199,19 +197,10 @@ async def handle_payment_succeeded(
     plan_tier = get_plan_tier_from_whop(plan_id)
     new_expiry = datetime.now(timezone.utc) + timedelta(days=30)
 
-    if email:
-        user = await auth_service.get_user_by_email(email)
-        if user:
-            user.plan_tier = plan_tier
-            user.upgraded_to_tier = plan_tier
-            user.upgraded_until = new_expiry
-            await session.commit()
-            logger.info(f"Renewed user {user.id} to plan {plan_tier} (expires={new_expiry})")
-            return
-
     if user_id:
         user = await auth_service.get_user_by_whop_id(user_id)
         if user:
+            user.whop_user_id = user_id
             user.plan_tier = plan_tier
             user.upgraded_to_tier = plan_tier
             user.upgraded_until = new_expiry
@@ -219,6 +208,26 @@ async def handle_payment_succeeded(
             logger.info(
                 f"Renewed user {user.id} by whop_user_id to plan {plan_tier} (expires={new_expiry})"
             )
+            return
+
+    if email:
+        user = await auth_service.get_user_by_email(email)
+        if user:
+            if user_id:
+                user.whop_user_id = user_id
+            user.plan_tier = plan_tier
+            user.upgraded_to_tier = plan_tier
+            user.upgraded_until = new_expiry
+            await session.commit()
+            logger.info(f"Renewed user {user.id} to plan {plan_tier} (expires={new_expiry})")
+            return
+
+    logger.warning(
+        "payment.succeeded: no matching user found for email=%s user_id=%s plan_id=%s",
+        email,
+        user_id,
+        plan_id,
+    )
 
 
 async def handle_payment_failed(
