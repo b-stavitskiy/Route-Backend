@@ -108,7 +108,9 @@ class AuthService:
             )
             user = result.scalar_one()
             if email and user.email != email:
-                user.email = email
+                existing_by_email = await self.get_user_by_email(email)
+                if existing_by_email is None or existing_by_email.id == user.id:
+                    user.email = email
             if avatar_url:
                 user.avatar_url = avatar_url
             if name:
