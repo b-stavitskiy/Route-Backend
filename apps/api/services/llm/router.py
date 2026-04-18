@@ -511,26 +511,43 @@ class LLMRouter:
         all_models = []
 
         provider_config = self.provider_config._config.get("providers", {}).get("models", {})
-
         allowed_models = self.provider_config.get_allowed_models(user_plan)
+        tier_order = ["free", "lite", "premium", "max", "pro"]
+        ordered_tiers = [tier for tier in tier_order if tier in provider_config]
+        ordered_tiers.extend(tier for tier in provider_config if tier not in ordered_tiers)
 
-        for tier, models in provider_config.items():
-            if tier not in ["free", "pro"]:
+        if allowed_models == "all":
+            candidate_models = [
+                model_name
+                for tier in ordered_tiers
+                for model_name in provider_config.get(tier, {})
+            ]
+        else:
+            candidate_models = allowed_models
+
+        seen_models = set()
+        for model_name in candidate_models:
+            if model_name in seen_models:
                 continue
 
-            for model_name, model_config in models.items():
-                if allowed_models == "all" or model_name in allowed_models:
-                    chain = model_config.get("provider_chain", [])
-                    primary_provider = chain[0]["provider"] if chain else None
+            for tier in ordered_tiers:
+                model_config = provider_config.get(tier, {}).get(model_name)
+                if not model_config:
+                    continue
 
-                    all_models.append(
-                        {
-                            "id": model_name,
-                            "object": "model",
-                            "created": 0,
-                            "owned_by": primary_provider or "unknown",
-                            "tier": tier,
-                        }
-                    )
+                chain = model_config.get("provider_chain", [])
+                primary_provider = chain[0]["provider"] if chain else None
+
+                all_models.append(
+                    {
+                        "id": model_name,
+                        "object": "model",
+                        "created": 0,
+                        "owned_by": primary_provider or "unknown",
+                        "tier": tier,
+                    }
+                )
+                seen_models.add(model_name)
+                break
 
         return all_models

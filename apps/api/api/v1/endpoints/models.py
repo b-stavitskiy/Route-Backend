@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
-from apps.api.core.config import get_provider_config
+from apps.api.core.config import get_provider_config, get_settings
 from apps.api.core.security import verify_access_token
 from apps.api.services.llm import LLMRouter
 from packages.redis.client import get_redis
@@ -21,11 +21,42 @@ class ModelListResponse(BaseModel):
     data: list[ModelObject]
 
 
+async def resolve_api_key_plan(api_key: str) -> str | None:
+    if not api_key:
+        return None
+
+    from apps.api.core.security import hash_api_key
+    from packages.db.models import ApiKey
+    from packages.db.session import get_db_session
+    from sqlalchemy import select
+
+    key_hash = hash_api_key(api_key)
+    async with get_db_session() as session:
+        result = await session.execute(
+            select(ApiKey).where(
+                ApiKey.key_hash == key_hash,
+                ApiKey.is_active,
+            )
+        )
+        api_key_obj = result.scalar_one_or_none()
+        if api_key_obj:
+            return api_key_obj.plan_tier.value
+
+    return None
+
+
 async def get_user_plan(request: Request) -> str:
     auth_header = request.headers.get("Authorization", "")
 
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
+        settings = get_settings()
+
+        if token.startswith(settings.api_key_prefix):
+            api_key_plan = await resolve_api_key_plan(token)
+            if api_key_plan:
+                return api_key_plan
+
         try:
             payload = await verify_access_token(token)
             return payload.get("plan", "free")
@@ -34,22 +65,9 @@ async def get_user_plan(request: Request) -> str:
 
     api_key = request.headers.get("X-API-Key", "")
     if api_key:
-        from apps.api.core.security import hash_api_key
-        from packages.db.models import ApiKey
-        from packages.db.session import get_db_session
-        from sqlalchemy import select
-
-        key_hash = hash_api_key(api_key)
-        async with get_db_session() as session:
-            result = await session.execute(
-                select(ApiKey).where(
-                    ApiKey.key_hash == key_hash,
-                    ApiKey.is_active,
-                )
-            )
-            api_key_obj = result.scalar_one_or_none()
-            if api_key_obj:
-                return api_key_obj.plan_tier.value
+        api_key_plan = await resolve_api_key_plan(api_key)
+        if api_key_plan:
+            return api_key_plan
 
     return "free"
 
