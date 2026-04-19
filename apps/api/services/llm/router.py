@@ -24,7 +24,7 @@ from packages.shared.exceptions import (
 
 logger = logging.getLogger("routing.run.router")
 
-MAX_MESSAGES = 50
+MAX_MESSAGES: int | None = None
 MAX_TOKENS = 200000
 
 _encoders: dict[str, Any] = {}
@@ -68,18 +68,22 @@ def _count_message_tokens(msg: dict[str, Any]) -> int:
 
 
 def truncate_messages(
-    messages: list[dict[str, Any]], max_messages: int = MAX_MESSAGES, max_tokens: int = MAX_TOKENS
+    messages: list[dict[str, Any]],
+    max_messages: int | None = MAX_MESSAGES,
+    max_tokens: int = MAX_TOKENS,
 ) -> list[dict[str, Any]]:
     if not messages:
         return messages
 
-    if len(messages) <= max_messages:
+    message_limit = max_messages if max_messages is not None else len(messages)
+
+    if len(messages) <= message_limit:
         total_chars = sum(len(str(m.get("content", ""))) for m in messages)
         if total_chars < max_tokens // 2:
             return messages
 
     total_tokens = sum(_count_message_tokens(m) for m in messages)
-    if len(messages) <= max_messages and total_tokens <= max_tokens:
+    if len(messages) <= message_limit and total_tokens <= max_tokens:
         return messages
 
     system_msgs = [m for m in messages if m.get("role") == "system"]
@@ -87,7 +91,7 @@ def truncate_messages(
 
     system_tokens = sum(_count_message_tokens(m) for m in system_msgs)
     available_tokens = max_tokens - system_tokens
-    available_messages = max_messages - len(system_msgs)
+    available_messages = message_limit - len(system_msgs)
 
     if available_messages < 1:
         available_messages = 1
@@ -99,7 +103,7 @@ def truncate_messages(
 
     for msg in reversed(other_msgs):
         msg_tokens = _count_message_tokens(msg)
-        if len(kept_msgs) >= max_messages:
+        if len(kept_msgs) >= message_limit:
             break
         if kept_tokens + msg_tokens > available_tokens and kept_msgs:
             break
@@ -545,6 +549,8 @@ class LLMRouter:
                         "created": 0,
                         "owned_by": primary_provider or "unknown",
                         "tier": tier,
+                        "context_window": model_config.get("context_size"),
+                        "max_output_tokens": model_config.get("max_output_tokens"),
                     }
                 )
                 seen_models.add(model_name)

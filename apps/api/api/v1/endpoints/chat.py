@@ -345,8 +345,6 @@ async def stream_generator(
                     user_id=UUID(user_id),
                     model=model,
                     provider=provider,
-                    prompt=None,
-                    response=None,
                     response_model=model,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
@@ -356,9 +354,6 @@ async def stream_generator(
                     status="success",
                     request_id=request_id,
                     request_hash=request_hash,
-                    extra_metadata=json.dumps(
-                        {"temperature": temperature, "max_tokens": max_tokens}
-                    ),
                 )
                 session.add(usage_log)
                 await session.commit()
@@ -407,7 +402,7 @@ async def chat_completions(
         for msg in tool_result_msgs:
             logger.info(
                 f"Tool result received: tool_call_id={msg.get('tool_call_id')} | "
-                f"content_preview={str(msg.get('content', ''))[:100]} | component=chat"
+                f"content_present={bool(msg.get('content'))} | component=chat"
             )
 
     logger.info(
@@ -421,7 +416,7 @@ async def chat_completions(
     available_for_input = max(1000, context_size - output_tokens_estimate - 5000)
 
     original_msg_count = len(messages)
-    messages = truncate_messages(messages, max_messages=50, max_tokens=available_for_input)
+    messages = truncate_messages(messages, max_tokens=available_for_input)
     if len(messages) < original_msg_count:
         logger.info(
             f"Truncated messages from {original_msg_count} to {len(messages)} "
@@ -505,8 +500,6 @@ async def chat_completions(
             user_id=UUID(user_id),
             model=body.model,
             provider=response.get("provider", "unknown"),
-            prompt=None,
-            response=None,
             response_model=response.get("model"),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -516,15 +509,6 @@ async def chat_completions(
             status="success",
             request_id=request_id,
             request_hash=request_hash,
-            extra_metadata=json.dumps(
-                {
-                    "temperature": body.temperature,
-                    "max_tokens": body.max_tokens,
-                    "top_p": body.top_p,
-                    "frequency_penalty": body.frequency_penalty,
-                    "presence_penalty": body.presence_penalty,
-                }
-            ),
         )
         session.add(usage_log)
         await session.commit()

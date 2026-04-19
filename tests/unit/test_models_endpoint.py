@@ -24,24 +24,34 @@ class FakeProviderConfig:
                     "free": {
                         "route/kimi-k2.5": {
                             "provider_chain": [{"provider": "crof"}],
+                            "context_size": 32000,
+                            "max_output_tokens": 4096,
                         },
                     },
                     "lite": {
                         "route/minimax-m2.5": {
                             "provider_chain": [{"provider": "crof"}],
+                            "context_size": 128000,
+                            "max_output_tokens": 8192,
                         },
                         "route/kimi-k2.5": {
                             "provider_chain": [{"provider": "fallback"}],
+                            "context_size": 64000,
+                            "max_output_tokens": 4096,
                         },
                     },
                     "premium": {
                         "route/glm-5.1": {
                             "provider_chain": [{"provider": "zai"}],
+                            "context_size": 200000,
+                            "max_output_tokens": 16000,
                         },
                     },
                     "max": {
                         "route/gpt-5": {
                             "provider_chain": [{"provider": "openai"}],
+                            "context_size": 256000,
+                            "max_output_tokens": 32000,
                         },
                     },
                 }
@@ -56,6 +66,19 @@ class FakeProviderConfig:
             "max": "all",
         }
         return allowed_by_plan[user_plan]
+
+    def get_model_config(self, model: str, user_plan: str = "free") -> dict | None:
+        models = self._config["providers"]["models"]
+        if model in models.get(user_plan, {}):
+            return models[user_plan][model]
+        for tier in ["free", "lite", "premium", "max"]:
+            if model in models.get(tier, {}):
+                return models[tier][model]
+        return None
+
+    def is_model_allowed(self, model: str, user_plan: str) -> bool:
+        allowed_models = self.get_allowed_models(user_plan)
+        return allowed_models == "all" or model in allowed_models
 
 
 def make_request(headers: list[tuple[bytes, bytes]]) -> Request:
@@ -168,3 +191,24 @@ async def test_list_available_models_uses_configured_tiers_and_deduplicates() ->
     ]
     assert [model["tier"] for model in models] == ["free", "lite", "premium", "max"]
     assert [model["owned_by"] for model in models] == ["crof", "crof", "zai", "openai"]
+    assert [model["context_window"] for model in models] == [32000, 128000, 200000, 256000]
+    assert [model["max_output_tokens"] for model in models] == [4096, 8192, 16000, 32000]
+
+
+@pytest.mark.asyncio
+async def test_get_model_returns_context_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(models_endpoint, "get_provider_config", lambda: FakeProviderConfig())
+
+    async def fake_get_user_plan(_request: Request) -> str:
+        return "premium"
+
+    monkeypatch.setattr(models_endpoint, "get_user_plan", fake_get_user_plan)
+
+    request = make_request([])
+    payload = await models_endpoint.get_model(request, "route/glm-5.1")
+
+    assert payload["id"] == "route/glm-5.1"
+    assert payload["owned_by"] == "zai"
+    assert payload["allowed"] is True
+    assert payload["context_window"] == 200000
+    assert payload["max_output_tokens"] == 16000

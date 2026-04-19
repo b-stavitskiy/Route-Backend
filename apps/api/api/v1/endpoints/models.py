@@ -17,6 +17,8 @@ class ModelObject(BaseModel):
     created: int = 0
     owned_by: str
     tier: str
+    context_window: int | None = None
+    max_output_tokens: int | None = None
 
 
 class ModelListResponse(BaseModel):
@@ -109,7 +111,7 @@ async def get_model(
     user_plan = await get_user_plan(request)
 
     provider_config = get_provider_config()
-    model_config = provider_config.get_model_config(model)
+    model_config = provider_config.get_model_config(model, user_plan)
 
     if not model_config:
         return {"error": "Model not found"}
@@ -129,4 +131,6 @@ async def get_model(
         else "premium",
         "allowed": allowed,
         "providers": chain,
+        "context_window": model_config.get("context_size"),
+        "max_output_tokens": model_config.get("max_output_tokens"),
     }
