@@ -71,8 +71,8 @@ _opencode_lock = threading.Lock()
 def _init_opencode_keys() -> None:
     global _opencode_api_keys
     if not _opencode_api_keys:
-        key1 = os.environ.get("OPENCODE_API_KEY", "")
-        key2 = os.environ.get("OPENCODE_API_KEY_2", "")
+        key1 = os.environ.get("OPENCODE_API_KEY", "").strip()
+        key2 = os.environ.get("OPENCODE_API_KEY_2", "").strip()
         _opencode_api_keys = [k for k in [key1, key2] if k]
         if not _opencode_api_keys:
             _opencode_api_keys = [""]
@@ -100,7 +100,6 @@ def _get_opencode_chat_provider() -> OpenAICompatProvider:
     global _opencode_chat_providers, _opencode_provider_index, _opencode_api_keys
     _init_opencode_keys()
 
-    num_keys = len(_opencode_api_keys) or 1
     if not _opencode_chat_providers:
         _opencode_chat_providers = [OpenCodeChatProvider(api_key=key) for key in _opencode_api_keys]
 
