@@ -391,7 +391,7 @@ async def chat_completions(
     redis = await get_redis()
 
     request_manager = RequestManager(redis)
-    await request_manager.check_and_increment(user_id, plan)
+    await request_manager.check_and_increment(user_id, plan, body.model)
 
     router_instance = LLMRouter(redis)
 

@@ -361,6 +361,11 @@ class LLMRouter:
             for provider_entry in provider_chain:
                 provider_name = provider_entry["provider"]
                 model_id = provider_entry.get("model_id", model)
+                chunk_timeout_seconds = int(
+                    provider_entry.get("stream_chunk_timeout_seconds")
+                    or routing_config.get("stream_chunk_timeout_seconds")
+                    or routing_config.get("health_check", {}).get("timeout_seconds", 10)
+                )
 
                 if self.circuit_breaker.is_open(provider_name):
                     logger.debug(

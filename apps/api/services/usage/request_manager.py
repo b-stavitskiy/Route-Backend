@@ -1,6 +1,8 @@
-import time
 import logging
+import time
+
 from redis.asyncio import Redis
+
 from apps.api.core.config import get_provider_config
 from packages.redis.client import RedisCache
 from packages.shared.exceptions import DailyRequestLimitError
@@ -26,7 +28,12 @@ class RequestManager:
         count = await self.cache.hget(daily_key, "total_requests")
         return int(count) if count else 0
 
-    async def check_daily_limit(self, user_id: str, plan_tier: str) -> None:
+    async def check_daily_limit(
+        self,
+        user_id: str,
+        plan_tier: str,
+        model: str | None = None,
+    ) -> None:
         plan_config = self.provider_config.get_plan_config(plan_tier)
         if not plan_config:
             raise DailyRequestLimitError(limit=0, used=0)
@@ -36,14 +43,20 @@ class RequestManager:
             raise DailyRequestLimitError(limit=0, used=0)
 
         current_usage = await self.get_daily_request_count(user_id)
+        request_count = self.provider_config.get_request_count_multiplier(model)
 
-        if current_usage >= daily_limit:
+        if current_usage + request_count > daily_limit:
             raise DailyRequestLimitError(
                 limit=daily_limit,
                 used=current_usage,
             )
 
-    async def check_and_increment(self, user_id: str, plan_tier: str) -> int:
+    async def check_and_increment(
+        self,
+        user_id: str,
+        plan_tier: str,
+        model: str | None = None,
+    ) -> int:
         plan_config = self.provider_config.get_plan_config(plan_tier)
         if not plan_config:
             raise DailyRequestLimitError(limit=0, used=0)
@@ -52,28 +65,30 @@ class RequestManager:
         if daily_limit == 0:
             raise DailyRequestLimitError(limit=0, used=0)
 
+        request_count = self.provider_config.get_request_count_multiplier(model)
         daily_key = self._get_daily_key(user_id)
         pipe = self.redis.pipeline()
-        pipe.hincrby(daily_key, "total_requests", 1)
+        pipe.hincrby(daily_key, "total_requests", request_count)
         pipe.expire(daily_key, self.KEY_EXPIRY)
         results = await pipe.execute()
 
         current_count = int(results[0])
         if current_count > daily_limit:
             pipe2 = self.redis.pipeline()
-            pipe2.hincrby(daily_key, "total_requests", -1)
+            pipe2.hincrby(daily_key, "total_requests", -request_count)
             await pipe2.execute()
             raise DailyRequestLimitError(
                 limit=daily_limit,
-                used=current_count - 1,
+                used=current_count - request_count,
             )
 
         return current_count
 
-    async def increment_request_count(self, user_id: str) -> int:
+    async def increment_request_count(self, user_id: str, model: str | None = None) -> int:
+        request_count = self.provider_config.get_request_count_multiplier(model)
         daily_key = self._get_daily_key(user_id)
         pipe = self.redis.pipeline()
-        pipe.hincrby(daily_key, "total_requests", 1)
+        pipe.hincrby(daily_key, "total_requests", request_count)
         pipe.expire(daily_key, self.KEY_EXPIRY)
         results = await pipe.execute()
         return int(results[0])

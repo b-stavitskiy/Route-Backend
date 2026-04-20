@@ -57,9 +57,9 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
     if api_key:
         async with get_db_session() as session:
             from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
 
             from packages.db.models import ApiKey
-            from sqlalchemy.orm import selectinload
 
             key_hash = hash_api_key(api_key)
             result = await session.execute(
@@ -106,7 +106,7 @@ async def generate_image(
     redis = await get_redis()
 
     request_manager = RequestManager(redis)
-    await request_manager.check_and_increment(user_id, plan)
+    await request_manager.check_and_increment(user_id, plan, body.model)
 
     provider_config_data = {
         "minimax_image": {"provider_chain": [{"provider": "minimax_image", "model_id": "image-01"}]}
@@ -161,6 +161,7 @@ async def generate_image(
 
     except Exception as e:
         logger.error(
-            f"Image generation failed | user={user_id} | model={body.model} | error={e} | component=images"
+            f"Image generation failed | user={user_id} | model={body.model} | "
+            f"error={e} | component=images"
         )
         return {"error": {"message": str(e), "type": "api_error"}}

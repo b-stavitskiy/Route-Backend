@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -162,7 +163,7 @@ class Settings(BaseSettings):
             return []
         try:
             return json.loads(self.cors_origins)
-        except:
+        except Exception:
             return []
 
 
@@ -316,6 +317,24 @@ class ProviderConfig:
         if not plan_config:
             return []
         return plan_config.get("allowed_models", [])
+
+    def get_request_count_multiplier(self, model: str | None) -> int:
+        if not model:
+            return 1
+
+        multipliers = self._plans_config.get("request_count_multipliers", {})
+        for model_pattern, multiplier in multipliers.items():
+            if fnmatchcase(model, model_pattern):
+                try:
+                    return max(1, int(multiplier))
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Invalid request count multiplier for model pattern %s: %r",
+                        model_pattern,
+                        multiplier,
+                    )
+                    return 1
+        return 1
 
     def is_model_allowed(self, model: str, user_plan: str) -> bool:
         allowed_models = self.get_allowed_models(user_plan)

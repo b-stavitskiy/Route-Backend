@@ -21,12 +21,13 @@ from apps.api.core.security import (
     is_refresh_token_used,
     verify_refresh_token,
 )
+from apps.api.services.auth_service import AuthService
 from packages.db.models import AdminAuditLog, ApiKey, PlanTier, Session, UsageLog, User
 from packages.db.session import get_db_session
 from packages.redis.client import get_redis
 from packages.shared.exceptions import (
     AuthenticationError,
-    AuthorizationError,
+    DuplicateResourceError,
     NotFoundError,
     ValidationError,
 )
