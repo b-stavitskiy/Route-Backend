@@ -88,6 +88,52 @@ def _build_vendor_thinking_config(
     return None
 
 
+def _map_budget_to_effort(budget_tokens: Any) -> str | None:
+    try:
+        budget = int(budget_tokens)
+    except (TypeError, ValueError):
+        return None
+
+    if budget <= 0:
+        return None
+    if budget <= 2000:
+        return "low"
+    if budget <= 8000:
+        return "medium"
+    return "high"
+
+
+def _build_crof_reasoning_effort(
+    thinking: dict[str, Any] | None,
+    reasoning: dict[str, Any] | None,
+    reasoning_effort: str | None,
+) -> str | None:
+    enabled = reasoning.get("enabled") if reasoning else None
+    if enabled is False:
+        return "none"
+
+    effort = reasoning_effort or (reasoning.get("effort") if reasoning else None)
+    if effort == "none":
+        return "none"
+    if effort in {"low", "medium", "high"}:
+        return effort
+
+    if reasoning and reasoning.get("max_tokens") is not None:
+        return _map_budget_to_effort(reasoning.get("max_tokens")) or "medium"
+
+    if thinking:
+        thinking_type = thinking.get("type")
+        if thinking_type == "disabled":
+            return "none"
+        if thinking_type == "enabled":
+            return _map_budget_to_effort(thinking.get("budget_tokens")) or "medium"
+
+    if enabled is True:
+        return "medium"
+
+    return None
+
+
 def _apply_openai_reasoning_controls(
     payload: dict[str, Any],
     provider_name: str,
@@ -96,6 +142,18 @@ def _apply_openai_reasoning_controls(
     include_stream_options: bool = False,
 ) -> None:
     thinking, reasoning, reasoning_effort = _normalize_reasoning_controls(kwargs)
+
+    if provider_name == "crof":
+        crof_reasoning_effort = _build_crof_reasoning_effort(
+            thinking,
+            reasoning,
+            reasoning_effort,
+        )
+        if crof_reasoning_effort is not None:
+            payload["reasoning_effort"] = crof_reasoning_effort
+        if include_stream_options and _has_value(kwargs, "stream_options"):
+            payload["stream_options"] = kwargs["stream_options"]
+        return
 
     if reasoning_effort is not None:
         payload["reasoning_effort"] = reasoning_effort
