@@ -30,6 +30,8 @@ class MessageContent(BaseModel):
     type: str
     text: str | None = None
     image_url: dict | None = None
+    thinking: str | None = None
+    signature: str | None = None
 
 
 class Message(BaseModel):
@@ -38,11 +40,17 @@ class Message(BaseModel):
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
     name: str | None = None
+    reasoning_content: str | None = None
+    thinking_blocks: list[dict[str, Any]] | None = None
 
 
 class Tool(BaseModel):
     type: str = "function"
     function: dict
+
+
+class StreamOptions(BaseModel):
+    include_usage: bool | None = None
 
 
 class ChatCompletionRequest(BaseModel):
@@ -57,6 +65,10 @@ class ChatCompletionRequest(BaseModel):
     presence_penalty: float | None = Field(default=None, ge=-2, le=2)
     tools: list[Tool] | None = None
     tool_choice: str | dict | None = None
+    stream_options: StreamOptions | None = None
+    thinking: dict[str, Any] | None = None
+    reasoning_effort: str | None = None
+    reasoning: dict[str, Any] | None = None
 
 
 class UsageInfo(BaseModel):
@@ -106,6 +118,12 @@ def build_chat_message(message: Message) -> dict[str, Any]:
                 detail="tool_call_id cannot be empty for tool results",
             )
         msg["tool_call_id"] = message.tool_call_id
+
+    if message.reasoning_content is not None:
+        msg["reasoning_content"] = message.reasoning_content
+
+    if message.thinking_blocks is not None:
+        msg["thinking_blocks"] = message.thinking_blocks
 
     return msg
 
@@ -201,6 +219,7 @@ async def stream_generator(
     latency_ms = 0
     start_time = time.time()
     streaming_tool_calls: list[dict[str, Any]] = []
+    include_usage = bool((kwargs.get("stream_options") or {}).get("include_usage"))
     redis = await get_redis()
 
     try:
@@ -249,15 +268,18 @@ async def stream_generator(
                 provider = data.get("provider") or "unknown"
 
             delta = None
+            reasoning_delta = None
             finish_reason = None
             tool_calls = None
             if "choices" in data and len(data["choices"]) > 0:
                 choice = data["choices"][0]
                 if "delta" in choice:
-                    delta = choice["delta"].get("content", "")
+                    delta = choice["delta"].get("content")
+                    reasoning_delta = choice["delta"].get("reasoning_content")
                     tool_calls = choice["delta"].get("tool_calls")
                 elif "message" in choice:
-                    delta = choice["message"].get("content", "")
+                    delta = choice["message"].get("content")
+                    reasoning_delta = choice["message"].get("reasoning_content")
                     tool_calls = choice["message"].get("tool_calls")
                 finish_reason = map_finish_reason(choice.get("finish_reason"))
 
@@ -288,24 +310,72 @@ async def stream_generator(
                     ],
                 }
                 yield f"data: {json.dumps(chunk_data)}\n\n".encode()
-            elif delta is not None:
-                chunk_data = {
-                    "id": request_id,
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": model,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": delta},
-                            "finish_reason": finish_reason,
-                        }
-                    ],
-                }
-                yield f"data: {json.dumps(chunk_data)}\n\n".encode()
+            else:
+                if reasoning_delta is not None:
+                    chunk_data = {
+                        "id": request_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"reasoning_content": reasoning_delta},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
+                    yield f"data: {json.dumps(chunk_data)}\n\n".encode()
+
+                if delta is not None:
+                    chunk_data = {
+                        "id": request_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": delta},
+                                "finish_reason": finish_reason,
+                            }
+                        ],
+                    }
+                    yield f"data: {json.dumps(chunk_data)}\n\n".encode()
+                elif finish_reason is not None:
+                    # Preserve terminal chunks like delta={} + finish_reason="stop".
+                    chunk_data = {
+                        "id": request_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {},
+                                "finish_reason": finish_reason,
+                            }
+                        ],
+                    }
+                    yield f"data: {json.dumps(chunk_data)}\n\n".encode()
 
         if streaming_tool_calls:
             await store_streaming_tool_calls(redis, user_id, request_id, streaming_tool_calls)
+
+        if include_usage:
+            usage_chunk = {
+                "id": request_id,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": input_tokens,
+                    "completion_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                },
+            }
+            yield f"data: {json.dumps(usage_chunk)}\n\n".encode()
 
         yield b"data: [DONE]\n\n"
         latency_ms = int((time.time() - start_time) * 1000)
@@ -447,6 +517,10 @@ async def chat_completions(
                 stop=body.stop,
                 tools=[t.model_dump() for t in body.tools] if body.tools else None,
                 tool_choice=body.tool_choice,
+                stream_options=(body.stream_options.model_dump() if body.stream_options else None),
+                thinking=body.thinking,
+                reasoning_effort=body.reasoning_effort,
+                reasoning=body.reasoning,
             ),
             media_type="text/event-stream",
             headers={
@@ -472,6 +546,9 @@ async def chat_completions(
         stop=body.stop,
         tools=[t.model_dump() for t in body.tools] if body.tools else None,
         tool_choice=body.tool_choice,
+        thinking=body.thinking,
+        reasoning_effort=body.reasoning_effort,
+        reasoning=body.reasoning,
     )
 
     usage_tracker = UsageTracker(redis)
