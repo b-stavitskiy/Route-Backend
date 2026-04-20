@@ -70,6 +70,15 @@ def _build_vendor_thinking_config(
     if enabled is False:
         return {"type": "disabled"}
 
+    max_tokens = reasoning.get("max_tokens") if reasoning else None
+    if max_tokens is not None:
+        try:
+            budget_tokens = max(1, int(max_tokens))
+        except (TypeError, ValueError):
+            budget_tokens = None
+        if budget_tokens is not None:
+            return {"type": "enabled", "budget_tokens": budget_tokens}
+
     effort = reasoning_effort or (reasoning.get("effort") if reasoning else None)
     if enabled is True or effort is not None:
         budget_map = {"low": 2000, "medium": 8000, "high": 20000}
