@@ -23,6 +23,103 @@ def _has_value(kwargs: dict[str, Any], key: str) -> bool:
     return key in kwargs and kwargs[key] is not None
 
 
+def _normalize_reasoning_controls(
+    kwargs: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str | None]:
+    thinking = kwargs.get("thinking") if isinstance(kwargs.get("thinking"), dict) else None
+    reasoning = kwargs.get("reasoning") if isinstance(kwargs.get("reasoning"), dict) else None
+    reasoning_effort = kwargs.get("reasoning_effort")
+
+    normalized_reasoning = dict(reasoning) if reasoning else None
+    enabled: bool | None = None
+
+    if normalized_reasoning is not None and "enabled" in normalized_reasoning:
+        enabled = bool(normalized_reasoning["enabled"])
+
+    reasoning_effort_value = reasoning_effort
+    if normalized_reasoning is not None and reasoning_effort_value is None:
+        effort = normalized_reasoning.get("effort")
+        if isinstance(effort, str):
+            reasoning_effort_value = effort
+
+    if reasoning_effort_value == "none" and enabled is None:
+        enabled = False
+        reasoning_effort_value = None
+
+    if normalized_reasoning is None and (enabled is not None or reasoning_effort_value is not None):
+        normalized_reasoning = {}
+
+    if normalized_reasoning is not None:
+        if enabled is not None:
+            normalized_reasoning["enabled"] = enabled
+        if reasoning_effort_value is not None:
+            normalized_reasoning["effort"] = reasoning_effort_value
+
+    return thinking, normalized_reasoning, reasoning_effort_value
+
+
+def _build_vendor_thinking_config(
+    thinking: dict[str, Any] | None,
+    reasoning: dict[str, Any] | None,
+    reasoning_effort: str | None,
+) -> dict[str, Any] | None:
+    if thinking:
+        return thinking
+
+    enabled = reasoning.get("enabled") if reasoning else None
+    if enabled is False:
+        return {"type": "disabled"}
+
+    effort = reasoning_effort or (reasoning.get("effort") if reasoning else None)
+    if enabled is True or effort is not None:
+        budget_map = {"low": 2000, "medium": 8000, "high": 20000}
+        budget = budget_map.get(effort, 8000)
+        return {"type": "enabled", "budget_tokens": budget}
+
+    return None
+
+
+def _apply_openai_reasoning_controls(
+    payload: dict[str, Any],
+    provider_name: str,
+    kwargs: dict[str, Any],
+    *,
+    include_stream_options: bool = False,
+) -> None:
+    thinking, reasoning, reasoning_effort = _normalize_reasoning_controls(kwargs)
+
+    if reasoning_effort is not None:
+        payload["reasoning_effort"] = reasoning_effort
+    if reasoning is not None:
+        payload["reasoning"] = reasoning
+
+    if provider_name in {"zai", "crof"}:
+        thinking_config = _build_vendor_thinking_config(thinking, reasoning, reasoning_effort)
+        if thinking_config is not None:
+            payload["thinking"] = thinking_config
+    elif thinking is not None:
+        payload["thinking"] = thinking
+
+    if include_stream_options and _has_value(kwargs, "stream_options"):
+        payload["stream_options"] = kwargs["stream_options"]
+
+
+def _apply_anthropic_reasoning_controls(payload: dict[str, Any], kwargs: dict[str, Any]) -> None:
+    thinking, reasoning, reasoning_effort = _normalize_reasoning_controls(kwargs)
+    thinking_config = _build_vendor_thinking_config(thinking, reasoning, reasoning_effort)
+    if not thinking_config:
+        return
+
+    payload["thinking"] = thinking_config
+    if thinking_config.get("type") != "enabled":
+        return
+
+    payload["temperature"] = 1.0
+    budget = thinking_config.get("budget_tokens", 8000)
+    if payload.get("max_tokens", 0) <= budget:
+        payload["max_tokens"] = budget + 4096
+
+
 def transform_tools_for_provider(
     tools: list[dict[str, Any]],
     provider_type: str,
@@ -255,12 +352,7 @@ class OpenAICompatProvider(BaseLLMProvider):
         if tool_choice:
             payload["tool_choice"] = tool_choice
 
-        if _has_value(kwargs, "thinking"):
-            payload["thinking"] = kwargs["thinking"]
-        if _has_value(kwargs, "reasoning_effort"):
-            payload["reasoning_effort"] = kwargs["reasoning_effort"]
-        if _has_value(kwargs, "reasoning"):
-            payload["reasoning"] = kwargs["reasoning"]
+        _apply_openai_reasoning_controls(payload, self.name, kwargs)
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -338,14 +430,12 @@ class OpenAICompatProvider(BaseLLMProvider):
         if tool_choice:
             payload["tool_choice"] = tool_choice
 
-        if _has_value(kwargs, "thinking"):
-            payload["thinking"] = kwargs["thinking"]
-        if _has_value(kwargs, "reasoning_effort"):
-            payload["reasoning_effort"] = kwargs["reasoning_effort"]
-        if _has_value(kwargs, "reasoning"):
-            payload["reasoning"] = kwargs["reasoning"]
-        if _has_value(kwargs, "stream_options"):
-            payload["stream_options"] = kwargs["stream_options"]
+        _apply_openai_reasoning_controls(
+            payload,
+            self.name,
+            kwargs,
+            include_stream_options=True,
+        )
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -442,22 +532,7 @@ class AnthropicCompatProvider(BaseLLMProvider):
                 [kwargs["stop"]] if isinstance(kwargs["stop"], str) else kwargs["stop"]
             )
 
-        thinking_config = kwargs.get("thinking")
-        reasoning_effort = kwargs.get("reasoning_effort")
-        if thinking_config:
-            payload["thinking"] = thinking_config
-            if thinking_config.get("type") == "enabled":
-                payload["temperature"] = 1.0
-                budget = thinking_config.get("budget_tokens", 8000)
-                if payload.get("max_tokens", 0) <= budget:
-                    payload["max_tokens"] = budget + 4096
-        elif reasoning_effort and reasoning_effort != "none":
-            budget_map = {"low": 2000, "medium": 8000, "high": 20000}
-            budget = budget_map.get(reasoning_effort, 8000)
-            payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
-            payload["temperature"] = 1.0
-            if payload.get("max_tokens", 0) <= budget:
-                payload["max_tokens"] = budget + 4096
+        _apply_anthropic_reasoning_controls(payload, kwargs)
 
         tools = kwargs.get("tools")
         if tools:
@@ -591,22 +666,7 @@ class AnthropicCompatProvider(BaseLLMProvider):
         if system_message:
             payload["system"] = system_message
 
-        thinking_config = kwargs.get("thinking")
-        reasoning_effort = kwargs.get("reasoning_effort")
-        if thinking_config:
-            payload["thinking"] = thinking_config
-            if thinking_config.get("type") == "enabled":
-                payload["temperature"] = 1.0
-                budget = thinking_config.get("budget_tokens", 8000)
-                if payload.get("max_tokens", 0) <= budget:
-                    payload["max_tokens"] = budget + 4096
-        elif reasoning_effort and reasoning_effort != "none":
-            budget_map = {"low": 2000, "medium": 8000, "high": 20000}
-            budget = budget_map.get(reasoning_effort, 8000)
-            payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
-            payload["temperature"] = 1.0
-            if payload.get("max_tokens", 0) <= budget:
-                payload["max_tokens"] = budget + 4096
+        _apply_anthropic_reasoning_controls(payload, kwargs)
 
         tools = kwargs.get("tools")
         if tools:
