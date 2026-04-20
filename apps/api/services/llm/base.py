@@ -251,6 +251,13 @@ class OpenAICompatProvider(BaseLLMProvider):
         if tool_choice:
             payload["tool_choice"] = tool_choice
 
+        if kwargs.get("thinking"):
+            payload["thinking"] = kwargs["thinking"]
+        if kwargs.get("reasoning_effort"):
+            payload["reasoning_effort"] = kwargs["reasoning_effort"]
+        if kwargs.get("reasoning"):
+            payload["reasoning"] = kwargs["reasoning"]
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -326,6 +333,13 @@ class OpenAICompatProvider(BaseLLMProvider):
         tool_choice = kwargs.get("tool_choice")
         if tool_choice:
             payload["tool_choice"] = tool_choice
+
+        if kwargs.get("thinking"):
+            payload["thinking"] = kwargs["thinking"]
+        if kwargs.get("reasoning_effort"):
+            payload["reasoning_effort"] = kwargs["reasoning_effort"]
+        if kwargs.get("reasoning"):
+            payload["reasoning"] = kwargs["reasoning"]
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -422,6 +436,23 @@ class AnthropicCompatProvider(BaseLLMProvider):
                 [kwargs["stop"]] if isinstance(kwargs["stop"], str) else kwargs["stop"]
             )
 
+        thinking_config = kwargs.get("thinking")
+        reasoning_effort = kwargs.get("reasoning_effort")
+        if thinking_config:
+            payload["thinking"] = thinking_config
+            if thinking_config.get("type") == "enabled":
+                payload["temperature"] = 1.0
+                budget = thinking_config.get("budget_tokens", 8000)
+                if payload.get("max_tokens", 0) <= budget:
+                    payload["max_tokens"] = budget + 4096
+        elif reasoning_effort and reasoning_effort != "none":
+            budget_map = {"low": 2000, "medium": 8000, "high": 20000}
+            budget = budget_map.get(reasoning_effort, 8000)
+            payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
+            payload["temperature"] = 1.0
+            if payload.get("max_tokens", 0) <= budget:
+                payload["max_tokens"] = budget + 4096
+
         tools = kwargs.get("tools")
         if tools:
             transformed_tools = transform_tools_for_provider(tools, "anthropic")
@@ -455,11 +486,18 @@ class AnthropicCompatProvider(BaseLLMProvider):
                 content_blocks = data.get("content", [])
 
                 text_parts = []
+                thinking_blocks = []
                 for block in content_blocks:
                     if block.get("type") == "text":
                         text_parts.append(block.get("text", ""))
+                    elif block.get("type") == "thinking":
+                        thinking_blocks.append(block)
 
                 message_content = "\n".join(text_parts)
+                reasoning_content = (
+                    "\n\n".join(b.get("thinking", "") for b in thinking_blocks) or None
+                )
+
                 tool_calls, finish_reason = transform_response_tool_calls(
                     content_blocks, "anthropic", tool_tracker
                 )
@@ -467,6 +505,18 @@ class AnthropicCompatProvider(BaseLLMProvider):
                 if data.get("stop_reason") == "tool_use":
                     finish_reason = "tool_calls"
 
+                message: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": message_content,
+                }
+                if tool_calls:
+                    message["tool_calls"] = tool_calls
+                if reasoning_content:
+                    message["reasoning_content"] = reasoning_content
+                if thinking_blocks:
+                    message["thinking_blocks"] = thinking_blocks
+
+                usage_data = data.get("usage", {})
                 return {
                     "id": data.get("id", "unknown"),
                     "object": "chat.completion",
@@ -475,23 +525,14 @@ class AnthropicCompatProvider(BaseLLMProvider):
                     "choices": [
                         {
                             "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": message_content,
-                                "tool_calls": tool_calls,
-                            }
-                            if tool_calls
-                            else {
-                                "role": "assistant",
-                                "content": message_content,
-                            },
+                            "message": message,
                             "finish_reason": finish_reason,
                         }
                     ],
                     "usage": {
-                        "prompt_tokens": data.get("usage", {}).get("input_tokens", 0),
-                        "completion_tokens": data.get("usage", {}).get("output_tokens", 0),
-                        "total_tokens": sum(data.get("usage", {}).values()),
+                        "prompt_tokens": usage_data.get("input_tokens", 0),
+                        "completion_tokens": usage_data.get("output_tokens", 0),
+                        "total_tokens": sum(usage_data.values()),
                     },
                 }
             elif response.status_code == 429:
@@ -545,6 +586,23 @@ class AnthropicCompatProvider(BaseLLMProvider):
         if system_message:
             payload["system"] = system_message
 
+        thinking_config = kwargs.get("thinking")
+        reasoning_effort = kwargs.get("reasoning_effort")
+        if thinking_config:
+            payload["thinking"] = thinking_config
+            if thinking_config.get("type") == "enabled":
+                payload["temperature"] = 1.0
+                budget = thinking_config.get("budget_tokens", 8000)
+                if payload.get("max_tokens", 0) <= budget:
+                    payload["max_tokens"] = budget + 4096
+        elif reasoning_effort and reasoning_effort != "none":
+            budget_map = {"low": 2000, "medium": 8000, "high": 20000}
+            budget = budget_map.get(reasoning_effort, 8000)
+            payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
+            payload["temperature"] = 1.0
+            if payload.get("max_tokens", 0) <= budget:
+                payload["max_tokens"] = budget + 4096
+
         tools = kwargs.get("tools")
         if tools:
             transformed_tools = transform_tools_for_provider(tools, "anthropic")
@@ -582,6 +640,7 @@ class AnthropicCompatProvider(BaseLLMProvider):
 
                 current_tool_call = None
                 tool_call_index = None
+                current_thinking: dict[str, str] | None = None
                 async for line in response.aiter_lines():
                     if line.startswith("event: "):
                         event_type = line[7:]
@@ -615,7 +674,8 @@ class AnthropicCompatProvider(BaseLLMProvider):
 
                         if event_type == "content_block_start":
                             content_block = data.get("content_block", {})
-                            if content_block.get("type") == "tool_use":
+                            block_type = content_block.get("type")
+                            if block_type == "tool_use":
                                 tool_call_index = data.get("index", 0)
                                 tc_id = content_block.get("id", "")
                                 if not tc_id:
@@ -629,15 +689,18 @@ class AnthropicCompatProvider(BaseLLMProvider):
                                         "arguments": "",
                                     },
                                 }
+                            elif block_type == "thinking":
+                                current_thinking = {"thinking": "", "signature": ""}
 
                         elif event_type == "content_block_delta":
                             delta = data.get("delta", {})
-                            if delta.get("type") == "input_json":
+                            delta_type = delta.get("type", "")
+                            if delta_type in ("input_json_delta", "input_json"):
                                 if current_tool_call:
                                     current_tool_call["function"]["arguments"] += delta.get(
                                         "partial_json", ""
                                     )
-                            elif delta.get("type") == "text":
+                            elif delta_type in ("text_delta", "text"):
                                 yield {
                                     "event": "message",
                                     "data": json.dumps(
@@ -652,9 +715,35 @@ class AnthropicCompatProvider(BaseLLMProvider):
                                         }
                                     ),
                                 }
+                            elif delta_type == "thinking_delta":
+                                if current_thinking is not None:
+                                    current_thinking["thinking"] += delta.get("thinking", "")
+                            elif delta_type == "signature_delta":
+                                if current_thinking is not None:
+                                    current_thinking["signature"] += delta.get("signature", "")
 
                         elif event_type == "content_block_stop":
-                            if current_tool_call:
+                            if current_thinking is not None:
+                                yield {
+                                    "event": "message",
+                                    "data": json.dumps(
+                                        {
+                                            "choices": [
+                                                {
+                                                    "index": 0,
+                                                    "delta": {
+                                                        "reasoning_content": current_thinking[
+                                                            "thinking"
+                                                        ]
+                                                    },
+                                                    "finish_reason": None,
+                                                }
+                                            ]
+                                        }
+                                    ),
+                                }
+                                current_thinking = None
+                            elif current_tool_call:
                                 current_tool_call["index"] = tool_call_index
                                 yield {
                                     "event": "message",

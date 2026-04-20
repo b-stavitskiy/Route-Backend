@@ -169,6 +169,26 @@ class ToolCallTracker:
         self._id_mapping.clear()
 
 
+def _clean_anthropic_content_block(block: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a provider-clean Anthropic content block, stripping unknown/None fields."""
+    block_type = block.get("type")
+    if block_type == "text":
+        text = block.get("text") or ""
+        return {"type": "text", "text": text} if text else None
+    elif block_type == "thinking":
+        thinking = block.get("thinking") or ""
+        if not thinking:
+            return None
+        result: dict[str, Any] = {"type": "thinking", "thinking": thinking}
+        signature = block.get("signature")
+        if signature:
+            result["signature"] = signature
+        return result
+    elif block_type == "tool_use":
+        return block
+    return None
+
+
 def transform_anthropic_messages(
     messages: list[dict[str, Any]],
     tool_tracker: ToolCallTracker | None = None,
@@ -236,6 +256,21 @@ def transform_anthropic_messages(
                     )
 
                 if tool_use_blocks:
+                    # Collect thinking blocks first (Anthropic requires thinking → text → tool_use)
+                    thinking_blocks: list[dict[str, Any]] = []
+                    thinking_blocks_field = msg.get("thinking_blocks")
+                    if thinking_blocks_field and isinstance(thinking_blocks_field, list):
+                        for b in thinking_blocks_field:
+                            cleaned = _clean_anthropic_content_block(b)
+                            if cleaned:
+                                thinking_blocks.append(cleaned)
+                    elif isinstance(content, list):
+                        for b in content:
+                            if isinstance(b, dict) and b.get("type") == "thinking":
+                                cleaned = _clean_anthropic_content_block(b)
+                                if cleaned:
+                                    thinking_blocks.append(cleaned)
+
                     text_parts = []
                     if content:
                         if isinstance(content, str):
@@ -245,11 +280,11 @@ def transform_anthropic_messages(
                                 if isinstance(block, dict) and block.get("type") == "text":
                                     text_parts.append(block.get("text", ""))
 
-                    all_content = tool_use_blocks
+                    all_content: list[dict[str, Any]] = []
+                    all_content.extend(thinking_blocks)
                     if text_parts:
-                        all_content = [
-                            {"type": "text", "text": "\n".join(text_parts)}
-                        ] + tool_use_blocks
+                        all_content.append({"type": "text", "text": "\n".join(text_parts)})
+                    all_content.extend(tool_use_blocks)
 
                     processed_messages.append(
                         {
@@ -260,7 +295,40 @@ def transform_anthropic_messages(
                 else:
                     processed_messages.append({"role": "assistant", "content": content or ""})
             else:
-                processed_messages.append({"role": "assistant", "content": content or ""})
+                # No tool_calls — preserve thinking blocks if content is a list
+                thinking_blocks_field = msg.get("thinking_blocks")
+                if thinking_blocks_field and isinstance(thinking_blocks_field, list):
+                    blocks: list[dict[str, Any]] = []
+                    for b in thinking_blocks_field:
+                        cleaned = _clean_anthropic_content_block(b)
+                        if cleaned:
+                            blocks.append(cleaned)
+                    if isinstance(content, list):
+                        for b in content:
+                            if isinstance(b, dict) and b.get("type") == "text":
+                                cleaned = _clean_anthropic_content_block(b)
+                                if cleaned:
+                                    blocks.append(cleaned)
+                    elif content:
+                        blocks.append({"type": "text", "text": str(content)})
+                    processed_messages.append(
+                        {"role": "assistant", "content": blocks or (content or "")}
+                    )
+                elif isinstance(content, list) and any(
+                    isinstance(b, dict) and b.get("type") in ("thinking", "text")
+                    for b in content
+                ):
+                    blocks = []
+                    for b in content:
+                        if isinstance(b, dict):
+                            cleaned = _clean_anthropic_content_block(b)
+                            if cleaned:
+                                blocks.append(cleaned)
+                    processed_messages.append(
+                        {"role": "assistant", "content": blocks or ""}
+                    )
+                else:
+                    processed_messages.append({"role": "assistant", "content": content or ""})
             continue
 
         processed_messages.append({"role": role, "content": content or ""})
