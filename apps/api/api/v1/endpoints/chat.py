@@ -283,6 +283,9 @@ async def stream_generator(
                     tool_calls = choice["message"].get("tool_calls")
                 finish_reason = map_finish_reason(choice.get("finish_reason"))
 
+            if delta == "":
+                delta = None
+
             if tool_calls is not None:
                 for tc in tool_calls:
                     logger.info(
