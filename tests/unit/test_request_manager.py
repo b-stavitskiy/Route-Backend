@@ -3,6 +3,7 @@ import pytest
 from apps.api.core.config import ProviderConfig
 from apps.api.services.usage import request_manager as request_manager_module
 from apps.api.services.usage.request_manager import RequestManager
+from apps.api.services.usage.tracker import UsageTracker
 from packages.shared.exceptions import DailyRequestLimitError
 
 
@@ -54,6 +55,17 @@ class FakeRedis:
         value = self.hashes.get(name, {}).get(key)
         return str(value) if value is not None else None
 
+    async def hgetall(self, name: str) -> dict[str, str]:
+        return {key: str(value) for key, value in self.hashes.get(name, {}).items()}
+
+    async def hincrby(self, name: str, key: str, amount: int = 1) -> int:
+        hash_value = self.hashes.setdefault(name, {})
+        hash_value[key] = hash_value.get(key, 0) + amount
+        return hash_value[key]
+
+    async def expire(self, _name: str, _seconds: int) -> bool:
+        return True
+
 
 def test_provider_config_request_count_multiplier_supports_exact_and_wildcard() -> None:
     provider_config = ProviderConfig()
@@ -83,6 +95,15 @@ def request_manager(monkeypatch: pytest.MonkeyPatch) -> RequestManager:
         lambda: FakeProviderConfig(),
     )
     return RequestManager(FakeRedis())
+
+
+@pytest.fixture
+def usage_tracker(monkeypatch: pytest.MonkeyPatch) -> UsageTracker:
+    monkeypatch.setattr(
+        "apps.api.services.usage.tracker.get_provider_config",
+        lambda: FakeProviderConfig(),
+    )
+    return UsageTracker(FakeRedis())
 
 
 @pytest.mark.asyncio
@@ -121,3 +142,20 @@ async def test_weighted_request_rolls_back_when_over_limit(
 
     assert exc_info.value.details == {"limit": 3, "used": 2, "remaining": 1}
     assert await request_manager.get_daily_request_count("user_1") == 2
+
+
+@pytest.mark.asyncio
+async def test_usage_tracker_counts_mimo_requests_as_two(
+    usage_tracker: UsageTracker,
+) -> None:
+    await usage_tracker.track_request(
+        user_id="user_1",
+        api_key_id="key_1",
+        model="route/mimo-v2-pro",
+        provider="xiaomi",
+    )
+
+    usage = await usage_tracker.get_daily_usage("user_1")
+
+    assert usage["total_requests"] == 2
+    assert usage["models"]["route/mimo-v2-pro"]["requests"] == 2

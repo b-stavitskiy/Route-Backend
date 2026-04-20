@@ -2,7 +2,7 @@ import time
 from typing import Any
 
 from redis.asyncio import Redis
-from apps.api.core.config import get_settings
+from apps.api.core.config import get_provider_config, get_settings
 from apps.api.services.credit import get_credit_service
 from packages.db.models import User
 from packages.db.session import get_db_session
@@ -190,6 +190,7 @@ class UsageTracker:
         self.redis = redis
         self.cache = RedisCache(redis)
         self.settings = get_settings()
+        self.provider_config = get_provider_config()
 
     async def track_request(
         self,
@@ -209,11 +210,13 @@ class UsageTracker:
 
         await self.cache.hincrby(daily_key, f"{model}:input_tokens", input_tokens)
         await self.cache.hincrby(daily_key, f"{model}:output_tokens", output_tokens)
-        await self.cache.hincrby(daily_key, f"{model}:requests", 1)
+        request_count = self.provider_config.get_request_count_multiplier(model)
+
+        await self.cache.hincrby(daily_key, f"{model}:requests", request_count)
         await self.cache.expire(daily_key, 172800)
 
         hourly_key = f"usage:hourly:{user_id}:{time.strftime('%Y-%m-%d:%H')}"
-        await self.cache.hincrby(hourly_key, f"{model}:requests", 1)
+        await self.cache.hincrby(hourly_key, f"{model}:requests", request_count)
         await self.cache.expire(hourly_key, 7200)
 
         return request_id
@@ -231,11 +234,13 @@ class UsageTracker:
 
         daily_key = f"usage:daily:{user_id}:{time.strftime('%Y-%m-%d')}"
 
-        await self.cache.hincrby(daily_key, f"{model}:image_requests", 1)
+        request_count = self.provider_config.get_request_count_multiplier(model)
+
+        await self.cache.hincrby(daily_key, f"{model}:image_requests", request_count)
         await self.cache.expire(daily_key, 172800)
 
         hourly_key = f"usage:hourly:{user_id}:{time.strftime('%Y-%m-%d:%H')}"
-        await self.cache.hincrby(hourly_key, f"{model}:image_requests", 1)
+        await self.cache.hincrby(hourly_key, f"{model}:image_requests", request_count)
         await self.cache.expire(hourly_key, 7200)
 
         return request_id
