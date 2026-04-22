@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, field_validator
 
 from apps.api.core.config import get_settings
-from apps.api.core.plans import get_user_effective_plan_name
+from apps.api.core.plans import get_user_effective_plan_display_name, get_user_effective_plan_name
 
 from apps.api.core.security import (
     blacklist_refresh_token,
@@ -275,7 +275,7 @@ async def login(
                 "id": str(user.id),
                 "email": user.email,
                 "name": user.name,
-                "plan_tier": get_user_effective_plan_name(user),
+                "plan_tier": get_user_effective_plan_display_name(user),
                 "email_verified": user.email_verified,
             },
         }
@@ -506,7 +506,7 @@ async def oauth_callback(
                 "id": str(user.id),
                 "email": user.email,
                 "name": user.name,
-                "plan_tier": get_user_effective_plan_name(user),
+                "plan_tier": get_user_effective_plan_display_name(user),
                 "email_verified": user.email_verified,
             },
         }

@@ -10,7 +10,14 @@ from sqlalchemy import case, delete, distinct, func, or_, select
 
 from apps.api.api.v1.dependencies.admin import AdminContext, get_current_admin
 from apps.api.core.config import get_provider_config, get_settings
-from apps.api.core.plans import get_plan_display_name, get_user_base_plan_name, get_user_effective_plan_name, get_user_upgrade_plan_name
+from apps.api.core.plans import (
+    get_user_base_plan_display_name,
+    get_user_base_plan_name,
+    get_user_effective_plan_display_name,
+    get_user_effective_plan_name,
+    get_user_upgrade_plan_display_name,
+    get_user_upgrade_plan_name,
+)
 from apps.api.core.middleware import get_client_ip
 from apps.api.core.security import (
     blacklist_refresh_token,
@@ -42,10 +49,12 @@ class AdminUserResponse(BaseModel):
     name: str | None
     avatar_url: str | None
     plan_tier: str
+    custom_plan_name: str | None
     custom_model_catalog_tier: str | None
     custom_requests_per_day: int | None
     effective_plan_tier: str
     upgraded_to_tier: str | None
+    upgraded_custom_plan_name: str | None
     upgraded_custom_model_catalog_tier: str | None
     upgraded_custom_requests_per_day: int | None
     upgraded_at: str | None
@@ -142,6 +151,7 @@ class CreateUserRequest(BaseModel):
     name: str | None = None
     avatar_url: str | None = None
     plan_tier: PlanTier = PlanTier.FREE
+    custom_plan_name: str | None = None
     custom_model_catalog_tier: PlanTier | None = None
     custom_requests_per_day: int | None = None
     credits: float = 0.0
@@ -176,6 +186,7 @@ class UpdateUserRequest(BaseModel):
 
 class UpdatePlanRequest(BaseModel):
     plan_tier: PlanTier | None = None
+    custom_plan_name: str | None = None
     custom_model_catalog_tier: PlanTier | None = None
     custom_requests_per_day: int | None = None
     reason: str | None = None
@@ -183,6 +194,7 @@ class UpdatePlanRequest(BaseModel):
 
 class UpgradePlanRequest(BaseModel):
     plan_tier: PlanTier | None = None
+    custom_plan_name: str | None = None
     custom_model_catalog_tier: PlanTier | None = None
     custom_requests_per_day: int | None = None
     expires_at: datetime
@@ -212,11 +224,13 @@ def serialize_user(user: User) -> AdminUserResponse:
         email=user.email,
         name=user.name,
         avatar_url=user.avatar_url,
-        plan_tier=get_plan_display_name(get_user_base_plan_name(user)),
+        plan_tier=get_user_base_plan_display_name(user),
+        custom_plan_name=user.custom_plan_name,
         custom_model_catalog_tier=(user.custom_model_catalog_tier.value if user.custom_model_catalog_tier else None),
         custom_requests_per_day=user.custom_requests_per_day,
-        effective_plan_tier=get_plan_display_name(get_user_effective_plan_name(user)),
-        upgraded_to_tier=get_plan_display_name(get_user_upgrade_plan_name(user)),
+        effective_plan_tier=get_user_effective_plan_display_name(user),
+        upgraded_to_tier=get_user_upgrade_plan_display_name(user),
+        upgraded_custom_plan_name=user.upgraded_custom_plan_name,
         upgraded_custom_model_catalog_tier=(
             user.upgraded_custom_model_catalog_tier.value if user.upgraded_custom_model_catalog_tier else None
         ),
@@ -582,6 +596,7 @@ async def create_user(
             is_superuser=body.is_superuser,
         )
         user.plan_tier = body.plan_tier
+        user.custom_plan_name = body.custom_plan_name
         user.custom_model_catalog_tier = body.custom_model_catalog_tier
         user.custom_requests_per_day = body.custom_requests_per_day
         user.credits = body.credits
@@ -704,9 +719,11 @@ async def update_user_plan(
         previous_plan = get_user_base_plan_name(user)
         if body.plan_tier is not None:
             user.plan_tier = body.plan_tier
+            user.custom_plan_name = None
             user.custom_model_catalog_tier = None
             user.custom_requests_per_day = None
         else:
+            user.custom_plan_name = body.custom_plan_name
             user.custom_model_catalog_tier = body.custom_model_catalog_tier
             user.custom_requests_per_day = body.custom_requests_per_day
         await write_audit_log(
@@ -720,6 +737,7 @@ async def update_user_plan(
             details={
                 "previous_plan_tier": previous_plan,
                 "new_plan_tier": body.plan_tier.value if body.plan_tier else "custom",
+                "custom_plan_name": body.custom_plan_name,
                 "custom_model_catalog_tier": (
                     body.custom_model_catalog_tier.value if body.custom_model_catalog_tier else None
                 ),
@@ -757,6 +775,7 @@ async def upgrade_user_plan(
                 "custom_model_catalog_tier and custom_requests_per_day must be provided together"
             )
         user.upgraded_to_tier = body.plan_tier
+        user.upgraded_custom_plan_name = body.custom_plan_name
         user.upgraded_custom_model_catalog_tier = body.custom_model_catalog_tier
         user.upgraded_custom_requests_per_day = body.custom_requests_per_day
         user.upgraded_at = utcnow()
@@ -771,6 +790,7 @@ async def upgrade_user_plan(
             target_user_id=user.id,
             details={
                 "upgraded_to_tier": body.plan_tier.value if body.plan_tier else "custom",
+                "custom_plan_name": body.custom_plan_name,
                 "custom_model_catalog_tier": (
                     body.custom_model_catalog_tier.value if body.custom_model_catalog_tier else None
                 ),
@@ -794,6 +814,7 @@ async def clear_user_upgrade(
         user = await get_user_or_404(session, user_id)
         previous = get_user_upgrade_plan_name(user)
         user.upgraded_to_tier = None
+        user.upgraded_custom_plan_name = None
         user.upgraded_custom_model_catalog_tier = None
         user.upgraded_custom_requests_per_day = None
         user.upgraded_at = None

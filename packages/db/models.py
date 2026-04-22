@@ -33,6 +33,7 @@ class User(Base):
     plan_tier: Mapped[PlanTier] = mapped_column(
         Enum(PlanTier), default=PlanTier.FREE, nullable=False
     )
+    custom_plan_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     custom_model_catalog_tier: Mapped[PlanTier | None] = mapped_column(Enum(PlanTier), nullable=True)
     custom_requests_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     credits: Mapped[float] = mapped_column(default=0.0, nullable=False)
@@ -51,6 +52,7 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     upgraded_to_tier: Mapped[PlanTier | None] = mapped_column(Enum(PlanTier), nullable=True)
+    upgraded_custom_plan_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     upgraded_custom_model_catalog_tier: Mapped[PlanTier | None] = mapped_column(
         Enum(PlanTier), nullable=True
     )

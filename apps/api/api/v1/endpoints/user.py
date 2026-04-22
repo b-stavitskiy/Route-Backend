@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from apps.api.core.plans import get_user_effective_plan_name
+from apps.api.core.plans import get_user_base_plan_name, get_user_effective_plan_display_name, get_user_effective_plan_name
 from apps.api.core.security import (
     generate_api_key,
     hash_password,
@@ -89,12 +89,12 @@ async def get_user(
             raise NotFoundError("User", user_id)
 
         effective_tier = get_user_effective_plan_name(user)
-        is_upgraded = effective_tier != (user.custom_plan_id or user.plan_tier.value)
+        is_upgraded = effective_tier != get_user_base_plan_name(user)
         return UserResponse(
             id=str(user.id),
             email=user.email,
             name=user.name,
-            plan_tier=effective_tier,
+            plan_tier=get_user_effective_plan_display_name(user),
             email_verified=user.email_verified,
             credits=user.credits,
             is_upgraded=is_upgraded,
@@ -168,7 +168,7 @@ async def create_api_key(
             "key": key,
             "key_prefix": prefix,
             "name": name,
-            "plan_tier": get_user_effective_plan_name(user),
+            "plan_tier": get_user_effective_plan_display_name(user),
             "created_at": api_key.created_at.isoformat(),
         }
 
@@ -257,7 +257,7 @@ async def get_credits(
             credits=user.credits,
             credits_monthly=credits_monthly,
             credits_used=credits_used,
-            plan_tier=effective_tier,
+            plan_tier=get_user_effective_plan_display_name(user),
             payg_enabled=False,
         )
 
@@ -291,7 +291,7 @@ async def get_requests(
             requests_used_today=requests_used,
             requests_limit_today=requests_limit,
             requests_remaining=max(0, requests_limit - requests_used),
-            plan_tier=effective_tier,
+            plan_tier=get_user_effective_plan_display_name(user),
         )
 
 

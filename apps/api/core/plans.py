@@ -23,6 +23,30 @@ def get_plan_display_name(plan_key: str | None) -> str:
     return "custom" if plan_key.startswith("custom:") else plan_key
 
 
+def get_user_base_plan_display_name(user: Any) -> str:
+    if getattr(user, "custom_plan_name", None):
+        return str(user.custom_plan_name)
+    return get_plan_display_name(get_user_base_plan_name(user))
+
+
+def get_user_upgrade_plan_display_name(user: Any) -> str | None:
+    if getattr(user, "upgraded_custom_plan_name", None):
+        return str(user.upgraded_custom_plan_name)
+    return get_plan_display_name(get_user_upgrade_plan_name(user))
+
+
+def get_user_effective_plan_display_name(user: Any, now: datetime | None = None) -> str:
+    if now is None:
+        now = datetime.now(UTC)
+
+    upgraded_until = getattr(user, "upgraded_until", None)
+    upgraded_plan = get_user_upgrade_plan_name(user)
+    if upgraded_plan and upgraded_until and upgraded_until > now:
+        return get_user_upgrade_plan_display_name(user) or "custom"
+
+    return get_user_base_plan_display_name(user)
+
+
 def get_user_base_plan_name(user: Any) -> str:
     custom_plan = build_custom_plan_key(
         getattr(user, "custom_model_catalog_tier", None),

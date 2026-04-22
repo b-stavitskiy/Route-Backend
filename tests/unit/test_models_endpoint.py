@@ -5,6 +5,7 @@ import pytest
 from starlette.requests import Request
 
 from apps.api.api.v1.endpoints import models as models_endpoint
+from apps.api.core import plans as plan_helpers
 from apps.api.services.llm.router import LLMRouter
 
 
@@ -264,3 +265,20 @@ async def test_list_available_models_supports_custom_plan_configs() -> None:
     models = await router.list_available_models("custom:max:10000")
 
     assert [model["id"] for model in models] == ["route/glm-5.1", "route/gpt-5"]
+
+
+def test_custom_plan_display_name_prefers_named_plan() -> None:
+    user = SimpleNamespace(
+        plan_tier=SimpleNamespace(value="free"),
+        custom_plan_name="enterprise-kira",
+        custom_model_catalog_tier=SimpleNamespace(value="max"),
+        custom_requests_per_day=5000,
+        upgraded_custom_plan_name=None,
+        upgraded_custom_model_catalog_tier=None,
+        upgraded_custom_requests_per_day=None,
+        upgraded_to_tier=None,
+        upgraded_until=None,
+    )
+
+    assert plan_helpers.get_user_effective_plan_name(user) == "custom:max:5000"
+    assert plan_helpers.get_user_effective_plan_display_name(user) == "enterprise-kira"
