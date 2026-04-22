@@ -4,6 +4,7 @@ import time
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from apps.api.core.plans import get_user_effective_plan_name
 from apps.api.core.rate_limiter import check_model_access
 from apps.api.core.security import hash_api_key, verify_access_token
 from apps.api.services.llm import LLMRouter
@@ -77,15 +78,7 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
 
             if api_key_obj:
                 user = api_key_obj.user
-                if user and user.upgraded_to_tier and user.upgraded_until:
-                    from datetime import UTC, datetime
-
-                    if user.upgraded_until > datetime.now(UTC):
-                        plan = user.upgraded_to_tier.value
-                    else:
-                        plan = user.plan_tier.value
-                else:
-                    plan = user.plan_tier.value if user else api_key_obj.plan_tier.value
+                plan = get_user_effective_plan_name(user) if user else api_key_obj.plan_tier.value
                 return str(api_key_obj.user_id), plan, str(api_key_obj.id)
             else:
                 raise AuthenticationError("Invalid API key")

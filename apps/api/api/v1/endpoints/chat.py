@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from apps.api.core.plans import get_user_effective_plan_name
 from apps.api.core.rate_limiter import check_model_access
 from apps.api.core.security import hash_api_key, verify_access_token
 from apps.api.services.llm import LLMRouter
@@ -166,15 +167,7 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
 
             if api_key_obj:
                 user = api_key_obj.user
-                if user and user.upgraded_to_tier and user.upgraded_until:
-                    from datetime import UTC
-
-                    if user.upgraded_until > datetime.now(UTC):
-                        current_plan = user.upgraded_to_tier.value
-                    else:
-                        current_plan = user.plan_tier.value
-                else:
-                    current_plan = user.plan_tier.value if user else api_key_obj.plan_tier.value
+                current_plan = get_user_effective_plan_name(user) if user else api_key_obj.plan_tier.value
 
                 cache_value = f"{api_key_obj.user_id}:{current_plan}:{api_key_obj.id}"
                 await redis.set(cache_key, cache_value, ex=300)

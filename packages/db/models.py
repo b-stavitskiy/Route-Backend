@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -33,6 +33,8 @@ class User(Base):
     plan_tier: Mapped[PlanTier] = mapped_column(
         Enum(PlanTier), default=PlanTier.FREE, nullable=False
     )
+    custom_model_catalog_tier: Mapped[PlanTier | None] = mapped_column(Enum(PlanTier), nullable=True)
+    custom_requests_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     credits: Mapped[float] = mapped_column(default=0.0, nullable=False)
 
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -49,6 +51,10 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     upgraded_to_tier: Mapped[PlanTier | None] = mapped_column(Enum(PlanTier), nullable=True)
+    upgraded_custom_model_catalog_tier: Mapped[PlanTier | None] = mapped_column(
+        Enum(PlanTier), nullable=True
+    )
+    upgraded_custom_requests_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     upgraded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     upgraded_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

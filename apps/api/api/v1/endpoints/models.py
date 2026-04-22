@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from apps.api.core.config import get_provider_config
+from apps.api.core.plans import get_user_effective_plan_name
 from apps.api.core.security import verify_access_token
 from apps.api.services.llm import LLMRouter
 from packages.redis.client import get_redis
@@ -49,16 +50,8 @@ async def resolve_api_key_plan(api_key: str) -> str | None:
         api_key_obj = result.scalar_one_or_none()
         if api_key_obj:
             user = api_key_obj.user
-            if (
-                user
-                and user.upgraded_to_tier is not None
-                and user.upgraded_until is not None
-                and user.upgraded_until > datetime.now(UTC)
-            ):
-                return user.upgraded_to_tier.value
-
             if user:
-                return user.plan_tier.value
+                return get_user_effective_plan_name(user)
 
             return api_key_obj.plan_tier.value
 

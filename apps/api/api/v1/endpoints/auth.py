@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, field_validator
 
 from apps.api.core.config import get_settings
+from apps.api.core.plans import get_user_effective_plan_name
 
 from apps.api.core.security import (
     blacklist_refresh_token,
@@ -241,7 +242,7 @@ async def login(
 
         access_token = create_access_token(
             subject=str(user.id),
-            additional_claims={"plan": user.plan_tier.value},
+            additional_claims={"plan": get_user_effective_plan_name(user)},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
         await create_session(user.id, refresh_token, db_session=session)
@@ -274,7 +275,7 @@ async def login(
                 "id": str(user.id),
                 "email": user.email,
                 "name": user.name,
-                "plan_tier": user.plan_tier.value,
+                "plan_tier": get_user_effective_plan_name(user),
                 "email_verified": user.email_verified,
             },
         }
@@ -306,7 +307,14 @@ async def refresh_token(
     if jti:
         await blacklist_refresh_token(jti, user_id)
 
-    access_token = create_access_token(subject=user_id)
+    async with get_db_session() as session:
+        auth_service = AuthService(session)
+        user = await auth_service.get_user_by_id(user_id)
+
+    access_token = create_access_token(
+        subject=user_id,
+        additional_claims={"plan": get_user_effective_plan_name(user) if user else "free"},
+    )
     new_refresh_token = create_refresh_token(subject=user_id)
     await create_session(UUID(user_id), new_refresh_token)
 
@@ -465,7 +473,7 @@ async def oauth_callback(
 
         access_token = create_access_token(
             subject=str(user.id),
-            additional_claims={"plan": user.plan_tier.value},
+            additional_claims={"plan": get_user_effective_plan_name(user)},
         )
         refresh_token = create_refresh_token(subject=str(user.id))
         await create_session(user.id, refresh_token, db_session=session)
@@ -490,14 +498,6 @@ async def oauth_callback(
             path="/",
         )
 
-        effective_tier = user.plan_tier
-        if (
-            user.upgraded_to_tier is not None
-            and user.upgraded_until is not None
-            and user.upgraded_until > datetime.now(UTC)
-        ):
-            effective_tier = user.upgraded_to_tier
-
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
@@ -506,7 +506,7 @@ async def oauth_callback(
                 "id": str(user.id),
                 "email": user.email,
                 "name": user.name,
-                "plan_tier": effective_tier.value,
+                "plan_tier": get_user_effective_plan_name(user),
                 "email_verified": user.email_verified,
             },
         }
@@ -538,18 +538,10 @@ async def get_me(
         if not user:
             raise AuthenticationError("User not found")
 
-        effective_tier = user.plan_tier
-        if (
-            user.upgraded_to_tier is not None
-            and user.upgraded_until is not None
-            and user.upgraded_until > datetime.now(UTC)
-        ):
-            effective_tier = user.upgraded_to_tier
-
         return UserResponse(
             id=str(user.id),
             email=user.email,
             name=user.name,
-            plan_tier=effective_tier.value,
+            plan_tier=get_user_effective_plan_name(user),
             email_verified=user.email_verified,
         )

@@ -275,19 +275,57 @@ class ProviderConfig:
     def get_provider_config(self, provider: str) -> dict[str, Any] | None:
         return self._config.get("providers", {}).get("providers", {}).get(provider)
 
-    def get_model_config(self, model: str, user_plan: str = "free") -> dict[str, Any] | None:
+    def _parse_custom_plan(self, plan: str) -> dict[str, Any] | None:
+        if not isinstance(plan, str) or not plan.startswith("custom:"):
+            return None
+        parts = plan.split(":", 2)
+        if len(parts) != 3:
+            return None
+        tier = parts[1].lower().strip()
+        try:
+            requests_per_day = int(parts[2])
+        except (TypeError, ValueError):
+            return None
+        return {"model_catalog_tier": tier, "requests_per_day": requests_per_day}
+
+    def _ordered_model_tiers(self) -> list[str]:
         models = self._config.get("providers", {}).get("models", {})
+        tier_order = ["free", "lite", "premium", "max", "pro"]
+        ordered_tiers = [tier for tier in tier_order if tier in models]
+        ordered_tiers.extend(tier for tier in models if tier not in ordered_tiers)
+        return ordered_tiers
+
+    def get_model_catalog_tier(self, user_plan: str) -> str:
+        custom_plan = self._parse_custom_plan(user_plan)
+        if custom_plan:
+            return custom_plan["model_catalog_tier"]
+
+        plan = user_plan.lower()
+        plan_config = self.get_plan_config(plan) or {}
         plan_tier_map = {
             "free": "free",
             "dev": "free",
             "lite": "lite",
             "premium": "premium",
             "max": "max",
+            "payg": "max",
         }
-        tier = plan_tier_map.get(user_plan, "free")
+        configured_tier = plan_config.get("model_catalog_tier") or plan_config.get("base_tier")
+        if isinstance(configured_tier, str) and configured_tier:
+            return plan_tier_map.get(configured_tier.lower(), configured_tier.lower())
+        return plan_tier_map.get(plan, plan)
+
+    def has_max_capabilities(self, user_plan: str) -> bool:
+        return self.get_model_catalog_tier(user_plan) == "max"
+
+    def get_model_config(self, model: str, user_plan: str = "free") -> dict[str, Any] | None:
+        models = self._config.get("providers", {}).get("models", {})
+        tier = self.get_model_catalog_tier(user_plan)
         if model in models.get(tier, {}):
             return models[tier][model]
-        for fallback_tier in ["free", "premium", "max"]:
+        for fallback_tier in self._ordered_model_tiers():
+            if fallback_tier == tier:
+                continue
             if model in models.get(fallback_tier, {}):
                 return models[fallback_tier][model]
         return None
@@ -300,7 +338,7 @@ class ProviderConfig:
         chain = []
         for provider_entry in model_config.get("provider_chain", []):
             max_plan_only = provider_entry.get("max_plan_only", False)
-            if max_plan_only and user_plan != "max":
+            if max_plan_only and not self.has_max_capabilities(user_plan):
                 continue
             chain.append(provider_entry)
 
@@ -310,6 +348,14 @@ class ProviderConfig:
         return self._config.get("providers", {}).get("routing", {})
 
     def get_plan_config(self, plan: str) -> dict[str, Any] | None:
+        custom_plan = self._parse_custom_plan(plan)
+        if custom_plan:
+            base_plan = custom_plan["model_catalog_tier"]
+            base_config = dict(self._plans_config.get("plans", {}).get(base_plan, {}))
+            if not base_config:
+                return None
+            base_config["requests_per_day"] = custom_plan["requests_per_day"]
+            return base_config
         return self._plans_config.get("plans", {}).get(plan.lower())
 
     def get_allowed_models(self, user_plan: str) -> list[str] | str:

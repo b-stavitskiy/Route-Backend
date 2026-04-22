@@ -64,8 +64,12 @@ class FakeProviderConfig:
             "lite": ["route/minimax-m2.5", "route/kimi-k2.5"],
             "premium": ["route/minimax-m2.5", "route/glm-5.1"],
             "max": "all",
+            "custom:max:10000": ["route/glm-5.1", "route/gpt-5"],
         }
         return allowed_by_plan[user_plan]
+
+    def _ordered_model_tiers(self) -> list[str]:
+        return ["free", "lite", "premium", "max"]
 
     def get_model_config(self, model: str, user_plan: str = "free") -> dict | None:
         models = self._config["providers"]["models"]
@@ -177,6 +181,44 @@ async def test_resolve_api_key_plan_prefers_active_user_upgrade(
 
 
 @pytest.mark.asyncio
+async def test_resolve_api_key_plan_prefers_active_custom_upgrade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upgraded_user = SimpleNamespace(
+        plan_tier=SimpleNamespace(value="premium"),
+        custom_plan_id=None,
+        upgraded_to_tier=None,
+        upgraded_custom_model_catalog_tier=SimpleNamespace(value="max"),
+        upgraded_custom_requests_per_day=10000,
+        upgraded_until=datetime.now(UTC) + timedelta(hours=1),
+    )
+    api_key = SimpleNamespace(
+        plan_tier=SimpleNamespace(value="premium"),
+        user=upgraded_user,
+    )
+
+    class FakeResult:
+        def scalar_one_or_none(self) -> SimpleNamespace:
+            return api_key
+
+    class FakeSession:
+        async def execute(self, _query) -> FakeResult:
+            return FakeResult()
+
+    class FakeSessionContext:
+        async def __aenter__(self) -> FakeSession:
+            return FakeSession()
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr("apps.api.core.security.hash_api_key", lambda key: f"hashed:{key}")
+    monkeypatch.setattr("packages.db.session.get_db_session", lambda: FakeSessionContext())
+
+    assert await models_endpoint.resolve_api_key_plan("rk_test") == "custom:max:10000"
+
+
+@pytest.mark.asyncio
 async def test_list_available_models_uses_configured_tiers_and_deduplicates() -> None:
     router = LLMRouter(DummyRedis())
     router.provider_config = FakeProviderConfig()
@@ -212,3 +254,13 @@ async def test_get_model_returns_context_metadata(monkeypatch: pytest.MonkeyPatc
     assert payload["allowed"] is True
     assert payload["context_window"] == 200000
     assert payload["max_output_tokens"] == 16000
+
+
+@pytest.mark.asyncio
+async def test_list_available_models_supports_custom_plan_configs() -> None:
+    router = LLMRouter(DummyRedis())
+    router.provider_config = FakeProviderConfig()
+
+    models = await router.list_available_models("custom:max:10000")
+
+    assert [model["id"] for model in models] == ["route/glm-5.1", "route/gpt-5"]

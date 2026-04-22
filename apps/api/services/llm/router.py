@@ -521,9 +521,7 @@ class LLMRouter:
 
         provider_config = self.provider_config._config.get("providers", {}).get("models", {})
         allowed_models = self.provider_config.get_allowed_models(user_plan)
-        tier_order = ["free", "lite", "premium", "max", "pro"]
-        ordered_tiers = [tier for tier in tier_order if tier in provider_config]
-        ordered_tiers.extend(tier for tier in provider_config if tier not in ordered_tiers)
+        ordered_tiers = self.provider_config._ordered_model_tiers()
 
         if allowed_models == "all":
             candidate_models = [
