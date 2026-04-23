@@ -9,6 +9,7 @@ from sqlalchemy import select
 from apps.api.core.plans import get_user_base_plan_name, get_user_effective_plan_display_name, get_user_effective_plan_name
 from apps.api.core.security import (
     generate_api_key,
+    get_access_token_from_request,
     hash_password,
     verify_access_token,
 )
@@ -62,12 +63,10 @@ class AddCreditsRequest(BaseModel):
 
 
 async def get_authenticated_user(request: Request) -> tuple[str, str]:
-    auth_header = request.headers.get("Authorization", "")
-
-    if not auth_header.startswith("Bearer "):
+    token = get_access_token_from_request(request)
+    if not token:
         raise RateLimitError("Authentication required")
 
-    token = auth_header[7:]
     payload = await verify_access_token(token)
     user_id = payload.get("sub")
     plan = payload.get("plan", "free")

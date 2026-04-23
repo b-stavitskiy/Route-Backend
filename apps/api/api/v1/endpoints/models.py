@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from apps.api.core.config import get_provider_config
 from apps.api.core.plans import get_user_effective_plan_name
-from apps.api.core.security import verify_access_token
+from apps.api.core.security import get_access_token_from_request, verify_access_token
 from apps.api.services.llm import LLMRouter
 from packages.redis.client import get_redis
 
@@ -59,10 +59,9 @@ async def resolve_api_key_plan(api_key: str) -> str | None:
 
 
 async def get_user_plan(request: Request) -> str:
-    auth_header = request.headers.get("Authorization", "")
+    token = get_access_token_from_request(request)
 
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
+    if token:
 
         api_key_plan = await resolve_api_key_plan(token)
         if api_key_plan:

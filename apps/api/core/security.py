@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from fastapi import Request
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from apps.api.core.config import get_settings
@@ -124,6 +125,18 @@ def decode_token(token: str) -> dict[str, Any]:
         return payload
     except JWTError as e:
         raise AuthenticationError(f"Invalid token: {str(e)}")
+
+
+def get_access_token_from_request(request: Request) -> str | None:
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token:
+        return cookie_token
+
+    return None
 
 
 async def verify_access_token(token: str) -> dict[str, Any]:

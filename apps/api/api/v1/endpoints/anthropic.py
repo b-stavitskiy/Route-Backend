@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from apps.api.core.plans import get_user_effective_plan_name
 from apps.api.core.rate_limiter import check_model_access
-from apps.api.core.security import hash_api_key, verify_access_token
+from apps.api.core.security import get_access_token_from_request, hash_api_key, verify_access_token
 from apps.api.services.llm import LLMRouter
 from apps.api.services.usage import CreditManager, UsageTracker
 from packages.db.session import get_db_session
@@ -45,10 +45,9 @@ class AnthropicUsage(BaseModel):
 
 
 async def get_user_from_request(request: Request) -> tuple[str, str, str]:
-    auth_header = request.headers.get("Authorization", "")
+    token = get_access_token_from_request(request)
 
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
+    if token:
         try:
             payload = await verify_access_token(token)
             user_id = payload.get("sub")
