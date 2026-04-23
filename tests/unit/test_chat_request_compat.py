@@ -58,3 +58,61 @@ def test_chat_request_preserves_null_content_for_assistant_tool_calls() -> None:
 
     assert message["content"] is None
     assert message["tool_calls"][0]["function"]["arguments"] == '{"city":"SF"}'
+
+
+def test_chat_request_normalizes_opencode_image_blocks() -> None:
+    body = ChatCompletionRequest.model_validate(
+        {
+            "model": "route/kimi-k2.5",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "what is in this image?"},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "ZmFrZQ==",
+                            },
+                        },
+                    ],
+                }
+            ],
+        }
+    )
+
+    message = build_chat_message(body.messages[0])
+
+    assert message["content"][0] == {"type": "text", "text": "what is in this image?"}
+    assert message["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": "data:image/png;base64,ZmFrZQ=="},
+    }
+
+
+def test_chat_request_preserves_image_url_blocks() -> None:
+    body = ChatCompletionRequest.model_validate(
+        {
+            "model": "route/kimi-k2.5",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "https://example.com/test.png", "detail": "high"},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    message = build_chat_message(body.messages[0])
+
+    assert message["content"][0] == {
+        "type": "image_url",
+        "image_url": {"url": "https://example.com/test.png", "detail": "high"},
+    }

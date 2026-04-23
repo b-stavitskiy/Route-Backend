@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Any
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -98,15 +99,62 @@ def extract_text_from_content(content: str | list[dict]) -> str:
     return str(content)
 
 
+def _anthropic_image_block_to_openai(block: dict[str, Any]) -> dict[str, dict[str, str]] | None:
+    source = block.get("source")
+    if not isinstance(source, dict):
+        return None
+
+    source_type = source.get("type")
+    if source_type in {"url", "image_url"}:
+        url = source.get("url")
+        if isinstance(url, str) and url:
+            return {"type": "image_url", "image_url": {"url": url}}
+
+    if source_type == "base64":
+        media_type = source.get("media_type") or "image/png"
+        data = source.get("data")
+        if isinstance(data, str) and data:
+            return {
+                "type": "image_url",
+                "image_url": {"url": f"data:{media_type};base64,{data}"},
+            }
+
+    return None
+
+
+def convert_content_to_openai_format(content: str | list[dict]) -> str | list[dict]:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+
+    blocks: list[dict] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text":
+            blocks.append({"type": "text", "text": block.get("text", "")})
+        elif block.get("type") == "image":
+            image_block = _anthropic_image_block_to_openai(block)
+            if image_block:
+                blocks.append(image_block)
+
+    if not blocks:
+        return ""
+
+    if all(block.get("type") == "text" for block in blocks):
+        return "\n".join(block.get("text", "") for block in blocks)
+
+    return blocks
+
+
 def convert_to_openai_format(messages: list[dict], system: str | list[dict] | None) -> list[dict]:
     result = []
     if system:
-        system_text = extract_text_from_content(system)
-        result.append({"role": "system", "content": system_text})
+        result.append({"role": "system", "content": convert_content_to_openai_format(system)})
     for msg in messages:
         content = msg.get("content", "")
-        content_text = extract_text_from_content(content)
-        result.append({"role": msg["role"], "content": content_text})
+        result.append({"role": msg["role"], "content": convert_content_to_openai_format(content)})
     return result
 
 

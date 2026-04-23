@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from apps.api.core.plans import get_user_effective_plan_name
 from apps.api.core.rate_limiter import check_model_access
@@ -28,6 +28,8 @@ router = APIRouter(prefix="/v1", tags=["chat"])
 
 
 class MessageContent(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     type: str
     text: str | None = None
     image_url: dict | None = None
@@ -102,7 +104,7 @@ def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
 def build_chat_message(message: Message) -> dict[str, Any]:
     content = message.content
     if isinstance(content, list):
-        content = [c.model_dump() if hasattr(c, "model_dump") else c for c in content]
+        content = [_normalize_content_block(c) for c in content]
 
     msg: dict[str, Any] = {"role": message.role, "content": content}
 
@@ -127,6 +129,86 @@ def build_chat_message(message: Message) -> dict[str, Any]:
         msg["thinking_blocks"] = message.thinking_blocks
 
     return msg
+
+
+def _normalize_content_block(content_block: Any) -> dict[str, Any] | Any:
+    if hasattr(content_block, "model_dump"):
+        content_block = content_block.model_dump(exclude_none=True)
+
+    if not isinstance(content_block, dict):
+        return content_block
+
+    normalized = dict(content_block)
+    block_type = normalized.get("type")
+
+    if block_type == "input_text":
+        normalized["type"] = "text"
+        normalized["text"] = normalized.get("text") or normalized.get("input_text") or ""
+        normalized.pop("input_text", None)
+        return normalized
+
+    if block_type in {"image", "input_image", "image_url"}:
+        image_payload = _extract_image_payload(normalized)
+        if image_payload:
+            normalized = {"type": "image_url", "image_url": image_payload}
+        return normalized
+
+    return normalized
+
+
+def _extract_image_payload(content_block: dict[str, Any]) -> dict[str, Any] | None:
+    image_url = content_block.get("image_url")
+    if isinstance(image_url, dict):
+        url = image_url.get("url")
+        if isinstance(url, str) and url:
+            return dict(image_url)
+    elif isinstance(image_url, str) and image_url:
+        payload = {"url": image_url}
+        if detail := content_block.get("detail"):
+            payload["detail"] = detail
+        return payload
+
+    input_image = content_block.get("input_image")
+    if isinstance(input_image, dict):
+        url = input_image.get("image_url") or input_image.get("url")
+        if isinstance(url, str) and url:
+            payload = {"url": url}
+            if detail := input_image.get("detail") or content_block.get("detail"):
+                payload["detail"] = detail
+            return payload
+    elif isinstance(input_image, str) and input_image:
+        payload = {"url": input_image}
+        if detail := content_block.get("detail"):
+            payload["detail"] = detail
+        return payload
+
+    direct_url = content_block.get("url")
+    if isinstance(direct_url, str) and direct_url:
+        payload = {"url": direct_url}
+        if detail := content_block.get("detail"):
+            payload["detail"] = detail
+        return payload
+
+    source = content_block.get("source")
+    if isinstance(source, dict):
+        source_type = source.get("type")
+        if source_type in {"url", "image_url"}:
+            url = source.get("url")
+            if isinstance(url, str) and url:
+                payload = {"url": url}
+                if detail := source.get("detail") or content_block.get("detail"):
+                    payload["detail"] = detail
+                return payload
+        if source_type == "base64":
+            media_type = source.get("media_type") or "image/png"
+            data = source.get("data")
+            if isinstance(data, str) and data:
+                payload = {"url": f"data:{media_type};base64,{data}"}
+                if detail := source.get("detail") or content_block.get("detail"):
+                    payload["detail"] = detail
+                return payload
+
+    return None
 
 
 async def get_user_from_request(request: Request) -> tuple[str, str, str]:

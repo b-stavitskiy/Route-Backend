@@ -1,8 +1,11 @@
 import json
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger("routing.run.api")
+
+_DATA_URL_RE = re.compile(r"^data:(?P<media_type>[^;]+);base64,(?P<data>.+)$")
 
 
 async def store_tool_calls_in_redis(
@@ -188,6 +191,64 @@ def _clean_anthropic_content_block(block: dict[str, Any]) -> dict[str, Any] | No
     return None
 
 
+def _openai_image_block_to_anthropic(block: dict[str, Any]) -> dict[str, Any] | None:
+    image_url = block.get("image_url")
+    if isinstance(image_url, dict):
+        url = image_url.get("url")
+    else:
+        url = image_url
+
+    if not isinstance(url, str) or not url:
+        return None
+
+    match = _DATA_URL_RE.match(url)
+    if match:
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": match.group("media_type"),
+                "data": match.group("data"),
+            },
+        }
+
+    return {
+        "type": "image",
+        "source": {
+            "type": "url",
+            "url": url,
+        },
+    }
+
+
+def _transform_content_blocks_for_anthropic(content: Any) -> Any:
+    if not isinstance(content, list):
+        return content or ""
+
+    blocks: list[dict[str, Any]] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+
+        block_type = block.get("type")
+        if block_type == "text":
+            text = block.get("text") or ""
+            if text:
+                blocks.append({"type": "text", "text": text})
+        elif block_type == "image_url":
+            transformed = _openai_image_block_to_anthropic(block)
+            if transformed:
+                blocks.append(transformed)
+        elif block_type == "image" and isinstance(block.get("source"), dict):
+            blocks.append(block)
+        else:
+            cleaned = _clean_anthropic_content_block(block)
+            if cleaned:
+                blocks.append(cleaned)
+
+    return blocks or ""
+
+
 def transform_anthropic_messages(
     messages: list[dict[str, Any]],
     tool_tracker: ToolCallTracker | None = None,
@@ -335,7 +396,7 @@ def transform_anthropic_messages(
                     processed_messages.append({"role": "assistant", "content": content or ""})
             continue
 
-        processed_messages.append({"role": role, "content": content or ""})
+        processed_messages.append({"role": role, "content": _transform_content_blocks_for_anthropic(content)})
 
     return processed_messages, id_mapping
 
@@ -425,6 +486,22 @@ def transform_google_messages(
                     if isinstance(block, dict):
                         if block.get("type") == "text":
                             parts.append({"text": block.get("text", "")})
+                        elif block.get("type") == "image_url":
+                            image_url = block.get("image_url")
+                            url = image_url.get("url") if isinstance(image_url, dict) else image_url
+                            if isinstance(url, str) and url:
+                                match = _DATA_URL_RE.match(url)
+                                if match:
+                                    parts.append(
+                                        {
+                                            "inlineData": {
+                                                "mimeType": match.group("media_type"),
+                                                "data": match.group("data"),
+                                            }
+                                        }
+                                    )
+                                else:
+                                    parts.append({"fileData": {"fileUri": url}})
                 if parts:
                     processed_messages.append({"role": "user", "parts": parts})
             continue
