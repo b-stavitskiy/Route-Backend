@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # JWT (required)
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60
+    access_token_expire_minutes: int = 30 * 24 * 60
     refresh_token_expire_days: int = 30
 
     @field_validator("jwt_secret_key")
