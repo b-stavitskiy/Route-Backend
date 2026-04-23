@@ -340,14 +340,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization")
+        cookie_token = request.cookies.get("access_token")
         api_key = request.headers.get("X-API-Key", "")
 
         if api_key:
             request.state.api_key = api_key
             return await call_next(request)
 
+        token = None
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header[7:]
+        elif cookie_token:
+            token = cookie_token
+
+        if token:
             settings = get_settings()
             if token.startswith(settings.api_key_prefix):
                 request.state.api_key = token
