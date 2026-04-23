@@ -773,6 +773,8 @@ class AnthropicCompatProvider(BaseLLMProvider):
                 current_tool_call = None
                 tool_call_index = None
                 current_thinking: dict[str, str] | None = None
+                input_tokens = 0
+                output_tokens = 0
                 async for line in response.aiter_lines():
                     if line.startswith("event: "):
                         event_type = line[7:]
@@ -803,6 +805,16 @@ class AnthropicCompatProvider(BaseLLMProvider):
                             continue
 
                         event_type = data.get("type", "")
+
+                        if event_type == "message_start":
+                            usage = data.get("message", {}).get("usage", {})
+                            input_tokens = usage.get("input_tokens", 0)
+                            continue
+
+                        if event_type == "message_delta":
+                            usage = data.get("usage", {})
+                            output_tokens = usage.get("output_tokens", 0)
+                            continue
 
                         if event_type == "content_block_start":
                             content_block = data.get("content_block", {})
@@ -893,6 +905,21 @@ class AnthropicCompatProvider(BaseLLMProvider):
                                 }
                                 current_tool_call = None
                                 tool_call_index = None
+
+                if input_tokens or output_tokens:
+                    yield {
+                        "event": "message",
+                        "data": json.dumps(
+                            {
+                                "choices": [],
+                                "usage": {
+                                    "prompt_tokens": input_tokens,
+                                    "completion_tokens": output_tokens,
+                                    "total_tokens": input_tokens + output_tokens,
+                                },
+                            }
+                        ),
+                    }
 
         except httpx.TimeoutException:
             raise ProviderTimeoutError(self.name, self.timeout)
