@@ -773,8 +773,7 @@ class AnthropicCompatProvider(BaseLLMProvider):
                 current_tool_call = None
                 tool_call_index = None
                 current_thinking: dict[str, str] | None = None
-                input_tokens = 0
-                output_tokens = 0
+                usage_data: dict[str, int] = {}
                 async for line in response.aiter_lines():
                     if line.startswith("event: "):
                         event_type = line[7:]
@@ -807,13 +806,15 @@ class AnthropicCompatProvider(BaseLLMProvider):
                         event_type = data.get("type", "")
 
                         if event_type == "message_start":
-                            usage = data.get("message", {}).get("usage", {})
-                            input_tokens = usage.get("input_tokens", 0)
+                            message_usage = data.get("message", {}).get("usage", {})
+                            for key, value in message_usage.items():
+                                usage_data[key] = usage_data.get(key, 0) + value
                             continue
 
                         if event_type == "message_delta":
-                            usage = data.get("usage", {})
-                            output_tokens = usage.get("output_tokens", 0)
+                            delta_usage = data.get("usage", {})
+                            for key, value in delta_usage.items():
+                                usage_data[key] = usage_data.get(key, 0) + value
                             continue
 
                         if event_type == "content_block_start":
@@ -906,17 +907,30 @@ class AnthropicCompatProvider(BaseLLMProvider):
                                 current_tool_call = None
                                 tool_call_index = None
 
-                if input_tokens or output_tokens:
+                if usage_data:
+                    input_tokens = usage_data.get("input_tokens", 0)
+                    output_tokens = usage_data.get("output_tokens", 0)
+
+                    usage_response = {
+                        "prompt_tokens": input_tokens,
+                        "completion_tokens": output_tokens,
+                        "total_tokens": input_tokens + output_tokens,
+                    }
+
+                    if "cache_creation_input_tokens" in usage_data:
+                        usage_response["prompt_tokens_details"] = {
+                            "cached_tokens": usage_data.get("cache_read_input_tokens", 0),
+                        }
+                        usage_response["cache_creation_input_tokens"] = usage_data.get(
+                            "cache_creation_input_tokens", 0
+                        )
+
                     yield {
                         "event": "message",
                         "data": json.dumps(
                             {
                                 "choices": [],
-                                "usage": {
-                                    "prompt_tokens": input_tokens,
-                                    "completion_tokens": output_tokens,
-                                    "total_tokens": input_tokens + output_tokens,
-                                },
+                                "usage": usage_response,
                             }
                         ),
                     }
