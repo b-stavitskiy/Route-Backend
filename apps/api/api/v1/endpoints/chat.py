@@ -338,6 +338,18 @@ async def stream_generator(
                 input_tokens = usage.get("prompt_tokens") or 0
                 output_tokens = usage.get("completion_tokens") or 0
 
+                if not data.get("choices"):
+                    usage_chunk = {
+                        "id": request_id,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model,
+                        "choices": [],
+                        "usage": usage,
+                    }
+                    yield f"data: {json.dumps(usage_chunk)}\n\n".encode()
+                    continue
+
             if "provider" in data:
                 provider = data.get("provider") or "unknown"
 
