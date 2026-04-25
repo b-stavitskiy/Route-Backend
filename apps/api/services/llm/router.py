@@ -40,6 +40,30 @@ def _get_encoder() -> Any:
         return None
 
 
+def get_model_limit(model_config: dict[str, Any]) -> dict[str, int | None]:
+    configured_limit = model_config.get("limit")
+    if not isinstance(configured_limit, dict):
+        configured_limit = {}
+
+    return {
+        "context": model_config.get("context_size", configured_limit.get("context")),
+        "output": model_config.get("max_output_tokens", configured_limit.get("output")),
+    }
+
+
+def build_model_metadata(model_config: dict[str, Any]) -> dict[str, Any]:
+    limit = get_model_limit(model_config)
+    metadata: dict[str, Any] = {
+        "name": model_config.get("name"),
+        "modalities": model_config.get("modalities"),
+        "options": model_config.get("options"),
+        "limit": limit,
+        "context_window": limit["context"],
+        "max_output_tokens": limit["output"],
+    }
+    return {key: value for key, value in metadata.items() if value is not None}
+
+
 def _count_tokens(text: str) -> int:
     encoder = _get_encoder()
     if encoder is None:
@@ -552,8 +576,7 @@ class LLMRouter:
                         "created": 0,
                         "owned_by": primary_provider or "unknown",
                         "tier": tier,
-                        "context_window": model_config.get("context_size"),
-                        "max_output_tokens": model_config.get("max_output_tokens"),
+                        **build_model_metadata(model_config),
                     }
                 )
                 seen_models.add(model_name)

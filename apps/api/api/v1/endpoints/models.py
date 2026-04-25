@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -7,6 +7,7 @@ from apps.api.core.config import get_provider_config
 from apps.api.core.plans import get_user_effective_plan_name
 from apps.api.core.security import get_access_token_from_request, verify_access_token
 from apps.api.services.llm import LLMRouter
+from apps.api.services.llm.router import build_model_metadata
 from packages.redis.client import get_redis
 
 router = APIRouter(prefix="/v1", tags=["models"])
@@ -18,6 +19,10 @@ class ModelObject(BaseModel):
     created: int = 0
     owned_by: str
     tier: str
+    name: str | None = None
+    modalities: dict[str, list[str]] | None = None
+    options: dict[str, Any] | None = None
+    limit: dict[str, int | None] | None = None
     context_window: int | None = None
     max_output_tokens: int | None = None
 
@@ -31,11 +36,12 @@ async def resolve_api_key_plan(api_key: str) -> str | None:
     if not api_key:
         return None
 
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
     from apps.api.core.security import hash_api_key
     from packages.db.models import ApiKey
     from packages.db.session import get_db_session
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
 
     key_hash = hash_api_key(api_key)
     async with get_db_session() as session:
@@ -123,6 +129,5 @@ async def get_model(
         else "premium",
         "allowed": allowed,
         "providers": chain,
-        "context_window": model_config.get("context_size"),
-        "max_output_tokens": model_config.get("max_output_tokens"),
+        **build_model_metadata(model_config),
     }

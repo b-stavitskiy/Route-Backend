@@ -2,7 +2,6 @@ import json
 import logging
 import time
 from collections.abc import AsyncGenerator
-from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -78,6 +77,18 @@ class UsageInfo(BaseModel):
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+
+
+def build_usage_payload(usage: dict[str, Any] | None) -> dict[str, Any]:
+    usage_payload = dict(usage or {})
+    prompt_tokens = usage_payload.get("prompt_tokens") or 0
+    completion_tokens = usage_payload.get("completion_tokens") or 0
+    usage_payload["prompt_tokens"] = prompt_tokens
+    usage_payload["completion_tokens"] = completion_tokens
+    usage_payload["total_tokens"] = usage_payload.get("total_tokens") or (
+        prompt_tokens + completion_tokens
+    )
+    return usage_payload
 
 
 def _normalize_tool_call(tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -249,7 +260,9 @@ async def get_user_from_request(request: Request) -> tuple[str, str, str]:
 
             if api_key_obj:
                 user = api_key_obj.user
-                current_plan = get_user_effective_plan_name(user) if user else api_key_obj.plan_tier.value
+                current_plan = (
+                    get_user_effective_plan_name(user) if user else api_key_obj.plan_tier.value
+                )
 
                 cache_value = f"{api_key_obj.user_id}:{current_plan}:{api_key_obj.id}"
                 await redis.set(cache_key, cache_value, ex=300)
@@ -293,7 +306,7 @@ async def stream_generator(
     latency_ms = 0
     start_time = time.time()
     streaming_tool_calls: list[dict[str, Any]] = []
-    include_usage = bool((kwargs.get("stream_options") or {}).get("include_usage"))
+    last_usage: dict[str, Any] | None = None
     redis = await get_redis()
 
     try:
@@ -316,6 +329,8 @@ async def stream_generator(
                 continue
             if not isinstance(chunk, dict):
                 continue
+            if "provider" in chunk:
+                provider = chunk.get("provider") or "unknown"
             data = chunk.get("data") or {}
             if isinstance(data, str):
                 try:
@@ -334,20 +349,12 @@ async def stream_generator(
                 break
 
             if "usage" in data:
-                usage = data.get("usage") or {}
+                usage = build_usage_payload(data.get("usage"))
+                last_usage = usage
                 input_tokens = usage.get("prompt_tokens") or 0
                 output_tokens = usage.get("completion_tokens") or 0
 
                 if not data.get("choices"):
-                    usage_chunk = {
-                        "id": request_id,
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": model,
-                        "choices": [],
-                        "usage": usage,
-                    }
-                    yield f"data: {json.dumps(usage_chunk)}\n\n".encode()
                     continue
 
             if "provider" in data:
@@ -451,20 +458,21 @@ async def stream_generator(
         if streaming_tool_calls:
             await store_streaming_tool_calls(redis, user_id, request_id, streaming_tool_calls)
 
-        if include_usage:
-            usage_chunk = {
-                "id": request_id,
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": model,
-                "choices": [],
-                "usage": {
+        usage_chunk = {
+            "id": request_id,
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [],
+            "usage": build_usage_payload(
+                last_usage
+                or {
                     "prompt_tokens": input_tokens,
                     "completion_tokens": output_tokens,
-                    "total_tokens": input_tokens + output_tokens,
-                },
-            }
-            yield f"data: {json.dumps(usage_chunk)}\n\n".encode()
+                }
+            ),
+        }
+        yield f"data: {json.dumps(usage_chunk)}\n\n".encode()
 
         yield b"data: [DONE]\n\n"
         latency_ms = int((time.time() - start_time) * 1000)

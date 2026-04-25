@@ -31,7 +31,10 @@ class FakeProviderConfig:
                     },
                     "lite": {
                         "route/minimax-m2.5": {
+                            "name": "MiniMax M2.5",
                             "provider_chain": [{"provider": "crof"}],
+                            "modalities": {"input": ["text"], "output": ["text"]},
+                            "options": {"thinking": {"type": "enabled", "budgetTokens": 8192}},
                             "context_size": 128000,
                             "max_output_tokens": 8192,
                         },
@@ -50,9 +53,10 @@ class FakeProviderConfig:
                     },
                     "max": {
                         "route/gpt-5": {
+                            "name": "GPT-5",
                             "provider_chain": [{"provider": "openai"}],
-                            "context_size": 256000,
-                            "max_output_tokens": 32000,
+                            "modalities": {"input": ["text", "image"], "output": ["text"]},
+                            "limit": {"context": 256000, "output": 32000},
                         },
                     },
                 }
@@ -236,6 +240,11 @@ async def test_list_available_models_uses_configured_tiers_and_deduplicates() ->
     assert [model["owned_by"] for model in models] == ["crof", "crof", "zai", "openai"]
     assert [model["context_window"] for model in models] == [32000, 128000, 200000, 256000]
     assert [model["max_output_tokens"] for model in models] == [4096, 8192, 16000, 32000]
+    assert models[1]["name"] == "MiniMax M2.5"
+    assert models[1]["modalities"] == {"input": ["text"], "output": ["text"]}
+    assert models[1]["options"] == {"thinking": {"type": "enabled", "budgetTokens": 8192}}
+    assert models[1]["limit"] == {"context": 128000, "output": 8192}
+    assert models[3]["limit"] == {"context": 256000, "output": 32000}
 
 
 @pytest.mark.asyncio
@@ -255,6 +264,24 @@ async def test_get_model_returns_context_metadata(monkeypatch: pytest.MonkeyPatc
     assert payload["allowed"] is True
     assert payload["context_window"] == 200000
     assert payload["max_output_tokens"] == 16000
+
+
+@pytest.mark.asyncio
+async def test_get_model_returns_rich_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(models_endpoint, "get_provider_config", lambda: FakeProviderConfig())
+
+    async def fake_get_user_plan(_request: Request) -> str:
+        return "lite"
+
+    monkeypatch.setattr(models_endpoint, "get_user_plan", fake_get_user_plan)
+
+    request = make_request([])
+    payload = await models_endpoint.get_model(request, "route/minimax-m2.5")
+
+    assert payload["name"] == "MiniMax M2.5"
+    assert payload["modalities"] == {"input": ["text"], "output": ["text"]}
+    assert payload["options"] == {"thinking": {"type": "enabled", "budgetTokens": 8192}}
+    assert payload["limit"] == {"context": 128000, "output": 8192}
 
 
 @pytest.mark.asyncio
