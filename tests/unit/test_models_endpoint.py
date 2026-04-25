@@ -238,13 +238,20 @@ async def test_list_available_models_uses_configured_tiers_and_deduplicates() ->
     ]
     assert [model["tier"] for model in models] == ["free", "lite", "premium", "max"]
     assert [model["owned_by"] for model in models] == ["crof", "crof", "zai", "openai"]
-    assert [model["context_window"] for model in models] == [32000, 128000, 200000, 256000]
-    assert [model["max_output_tokens"] for model in models] == [4096, 8192, 16000, 32000]
+    assert [model["limit"] for model in models] == [
+        {"context": 32000, "output": 4096},
+        {"context": 128000, "output": 8192},
+        {"context": 200000, "output": 16000},
+        {"context": 256000, "output": 32000},
+    ]
+    assert all("context_window" not in model for model in models)
+    assert all("max_output_tokens" not in model for model in models)
+    assert models[0]["name"] == "route/kimi-k2.5"
+    assert models[0]["modalities"] == {"input": ["text"], "output": ["text"]}
+    assert models[0]["options"] == {}
     assert models[1]["name"] == "MiniMax M2.5"
     assert models[1]["modalities"] == {"input": ["text"], "output": ["text"]}
     assert models[1]["options"] == {"thinking": {"type": "enabled", "budgetTokens": 8192}}
-    assert models[1]["limit"] == {"context": 128000, "output": 8192}
-    assert models[3]["limit"] == {"context": 256000, "output": 32000}
 
 
 @pytest.mark.asyncio
@@ -262,8 +269,12 @@ async def test_get_model_returns_context_metadata(monkeypatch: pytest.MonkeyPatc
     assert payload["id"] == "route/glm-5.1"
     assert payload["owned_by"] == "zai"
     assert payload["allowed"] is True
-    assert payload["context_window"] == 200000
-    assert payload["max_output_tokens"] == 16000
+    assert payload["name"] == "route/glm-5.1"
+    assert payload["modalities"] == {"input": ["text"], "output": ["text"]}
+    assert payload["options"] == {}
+    assert payload["limit"] == {"context": 200000, "output": 16000}
+    assert "context_window" not in payload
+    assert "max_output_tokens" not in payload
 
 
 @pytest.mark.asyncio

@@ -19,12 +19,10 @@ class ModelObject(BaseModel):
     created: int = 0
     owned_by: str
     tier: str
-    name: str | None = None
-    modalities: dict[str, list[str]] | None = None
-    options: dict[str, Any] | None = None
-    limit: dict[str, int | None] | None = None
-    context_window: int | None = None
-    max_output_tokens: int | None = None
+    name: str
+    modalities: dict[str, list[str]]
+    options: dict[str, Any]
+    limit: dict[str, int | None]
 
 
 class ModelListResponse(BaseModel):
@@ -129,5 +127,5 @@ async def get_model(
         else "premium",
         "allowed": allowed,
         "providers": chain,
-        **build_model_metadata(model_config),
+        **build_model_metadata(model_config, model),
     }

@@ -51,17 +51,17 @@ def get_model_limit(model_config: dict[str, Any]) -> dict[str, int | None]:
     }
 
 
-def build_model_metadata(model_config: dict[str, Any]) -> dict[str, Any]:
+def build_model_metadata(
+    model_config: dict[str, Any],
+    model_name: str | None = None,
+) -> dict[str, Any]:
     limit = get_model_limit(model_config)
-    metadata: dict[str, Any] = {
-        "name": model_config.get("name"),
-        "modalities": model_config.get("modalities"),
-        "options": model_config.get("options"),
+    return {
+        "name": model_config.get("name") or model_name,
+        "modalities": model_config.get("modalities") or {"input": ["text"], "output": ["text"]},
+        "options": model_config.get("options") or {},
         "limit": limit,
-        "context_window": limit["context"],
-        "max_output_tokens": limit["output"],
     }
-    return {key: value for key, value in metadata.items() if value is not None}
 
 
 def _count_tokens(text: str) -> int:
@@ -576,7 +576,7 @@ class LLMRouter:
                         "created": 0,
                         "owned_by": primary_provider or "unknown",
                         "tier": tier,
-                        **build_model_metadata(model_config),
+                        **build_model_metadata(model_config, model_name),
                     }
                 )
                 seen_models.add(model_name)
