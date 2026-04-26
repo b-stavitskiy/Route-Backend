@@ -25,6 +25,9 @@ from packages.shared.exceptions import (
 logger = logging.getLogger("routing.run.router")
 
 MAX_MESSAGES: int | None = None
+DEFAULT_CONTEXT_TOKENS = 80000
+DEFAULT_OUTPUT_TOKENS = 32768
+CONTEXT_RESERVE_TOKENS = 5000
 MAX_TOKENS = 200000
 
 _encoders: dict[str, Any] = {}
@@ -49,6 +52,18 @@ def get_model_limit(model_config: dict[str, Any]) -> dict[str, int | None]:
         "context": model_config.get("context_size", configured_limit.get("context")),
         "output": model_config.get("max_output_tokens", configured_limit.get("output")),
     }
+
+
+def get_model_token_budget(
+    model_config: dict[str, Any] | None,
+    requested_max_tokens: int | None,
+) -> tuple[int, int, int]:
+    limit = get_model_limit(model_config or {})
+    context_size = int(limit.get("context") or DEFAULT_CONTEXT_TOKENS)
+    max_output_tokens = int(limit.get("output") or DEFAULT_OUTPUT_TOKENS)
+    output_tokens = min(requested_max_tokens or max_output_tokens, max_output_tokens)
+    available_for_input = max(1000, context_size - output_tokens - CONTEXT_RESERVE_TOKENS)
+    return context_size, output_tokens, available_for_input
 
 
 def build_model_metadata(

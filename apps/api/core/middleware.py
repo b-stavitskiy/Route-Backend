@@ -63,6 +63,7 @@ SKIP_PATHS = frozenset(
     {
         "/",
         "/health",
+        "/.well-known/opencode",
         "/docs",
         "/openapi.json",
         "/redoc",
@@ -308,6 +309,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         public_paths = {
             "/",
             "/health",
+            "/.well-known/opencode",
             "/v1/admin/auth/login",
             "/v1/admin/auth/refresh",
             "/auth/signup/init",

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.api.v1.router import router as v1_router
@@ -18,6 +18,7 @@ from apps.api.core.middleware import (
     RateLimitMiddleware,
 )
 from apps.api.services.health import get_health_service
+from apps.api.services.llm.router import build_model_metadata
 from packages.db.session import close_db, init_db
 from packages.redis.client import close_redis, create_redis_pool
 
@@ -230,6 +231,48 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health_check():
         return {"status": "healthy", "timestamp": int(time.time())}
+
+    @app.get("/.well-known/opencode")
+    async def opencode_config(request: Request):
+        provider_config = get_provider_config()
+        configured_models = provider_config._config.get("providers", {}).get("models", {})
+        models = {}
+
+        for tier in provider_config._ordered_model_tiers():
+            tier_models = configured_models.get(tier, {})
+            if not isinstance(tier_models, dict):
+                continue
+
+            for model_name, model_config in tier_models.items():
+                if model_name in models:
+                    continue
+
+                metadata = build_model_metadata(model_config, model_name)
+                models[model_name] = {
+                    "id": model_name,
+                    "name": metadata["name"],
+                    "temperature": True,
+                    "tool_call": True,
+                    "attachment": "image" in metadata["modalities"].get("input", []),
+                    "reasoning": bool(metadata["options"].get("thinking")),
+                    "limit": metadata["limit"],
+                    "modalities": metadata["modalities"],
+                    "options": metadata["options"],
+                }
+
+        base_url = str(request.base_url).rstrip("/")
+        return {
+            "config": {
+                "provider": {
+                    "routingrun": {
+                        "npm": "@ai-sdk/openai-compatible",
+                        "name": "Routing.Run",
+                        "options": {"baseURL": f"{base_url}/v1"},
+                        "models": models,
+                    }
+                }
+            }
+        }
 
     @app.get("/")
     async def root():

@@ -12,7 +12,7 @@ from apps.api.core.plans import get_user_effective_plan_name
 from apps.api.core.rate_limiter import check_model_access
 from apps.api.core.security import get_access_token_from_request, hash_api_key, verify_access_token
 from apps.api.services.llm import LLMRouter
-from apps.api.services.llm.router import truncate_messages
+from apps.api.services.llm.router import get_model_token_budget, truncate_messages
 from apps.api.services.llm.transforms import map_finish_reason, store_streaming_tool_calls
 from apps.api.services.usage import UsageTracker
 from apps.api.services.usage.request_manager import RequestManager
@@ -579,22 +579,19 @@ async def chat_completions(
     )
 
     model_config = router_instance.provider_config.get_model_config(body.model, plan)
-    context_size = model_config.get("context_size", 80000) if model_config else 80000
-    output_tokens_estimate = body.max_tokens or 4096
-    available_for_input = max(1000, context_size - output_tokens_estimate - 5000)
+    context_size, max_tokens, available_for_input = get_model_token_budget(
+        model_config,
+        body.max_tokens,
+    )
 
     original_msg_count = len(messages)
     messages = truncate_messages(messages, max_tokens=available_for_input)
     if len(messages) < original_msg_count:
         logger.info(
             f"Truncated messages from {original_msg_count} to {len(messages)} "
-            f"(context_size={context_size}, output_tokens_estimate={output_tokens_estimate}, "
+            f"(context_size={context_size}, output_tokens_estimate={max_tokens}, "
             f"available_for_input={available_for_input}) | component=router"
         )
-
-    max_tokens = body.max_tokens
-    if max_tokens is None or max_tokens > 32768:
-        max_tokens = 32768
 
     tools = [t.model_dump() for t in body.tools] if body.tools else None
     parallel_tool_calls = body.parallel_tool_calls
@@ -613,7 +610,7 @@ async def chat_completions(
                 user_id=user_id,
                 api_key_id=api_key_id,
                 temperature=body.temperature,
-                max_tokens=body.max_tokens,
+                max_tokens=max_tokens,
                 top_p=body.top_p,
                 frequency_penalty=body.frequency_penalty,
                 presence_penalty=body.presence_penalty,
@@ -642,7 +639,7 @@ async def chat_completions(
         messages=messages,
         user_plan=plan,
         temperature=body.temperature,
-        max_tokens=body.max_tokens,
+        max_tokens=max_tokens,
         stream=False,
         top_p=body.top_p,
         frequency_penalty=body.frequency_penalty,
