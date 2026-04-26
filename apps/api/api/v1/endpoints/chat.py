@@ -579,17 +579,18 @@ async def chat_completions(
     )
 
     model_config = router_instance.provider_config.get_model_config(body.model, plan)
-    context_size, max_tokens, available_for_input = get_model_token_budget(
+    context_size, output_tokens_estimate, available_for_input = get_model_token_budget(
         model_config,
         body.max_tokens,
     )
+    provider_max_tokens = output_tokens_estimate if body.max_tokens is not None else None
 
     original_msg_count = len(messages)
     messages = truncate_messages(messages, max_tokens=available_for_input)
     if len(messages) < original_msg_count:
         logger.info(
             f"Truncated messages from {original_msg_count} to {len(messages)} "
-            f"(context_size={context_size}, output_tokens_estimate={max_tokens}, "
+            f"(context_size={context_size}, output_tokens_estimate={output_tokens_estimate}, "
             f"available_for_input={available_for_input}) | component=router"
         )
 
@@ -610,7 +611,7 @@ async def chat_completions(
                 user_id=user_id,
                 api_key_id=api_key_id,
                 temperature=body.temperature,
-                max_tokens=max_tokens,
+                max_tokens=provider_max_tokens,
                 top_p=body.top_p,
                 frequency_penalty=body.frequency_penalty,
                 presence_penalty=body.presence_penalty,
@@ -639,7 +640,7 @@ async def chat_completions(
         messages=messages,
         user_plan=plan,
         temperature=body.temperature,
-        max_tokens=max_tokens,
+        max_tokens=provider_max_tokens,
         stream=False,
         top_p=body.top_p,
         frequency_penalty=body.frequency_penalty,

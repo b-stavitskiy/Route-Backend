@@ -45,3 +45,14 @@ def test_model_token_budget_caps_requested_output_to_model_limit() -> None:
     assert context_size == 262_144
     assert max_tokens == 32_768
     assert available_for_input == 224_376
+
+
+def test_model_token_budget_reserves_output_without_requiring_provider_max_tokens() -> None:
+    context_size, max_tokens, available_for_input = get_model_token_budget(
+        {"context_size": 131_072, "max_output_tokens": 65_536},
+        None,
+    )
+
+    assert context_size == 131_072
+    assert max_tokens == 65_536
+    assert available_for_input == 60_536
