@@ -171,6 +171,11 @@ def _apply_openai_reasoning_controls(
         payload["stream_options"] = kwargs["stream_options"]
 
 
+def _apply_parallel_tool_calls(payload: dict[str, Any], kwargs: dict[str, Any]) -> None:
+    if payload.get("tools") and _has_value(kwargs, "parallel_tool_calls"):
+        payload["parallel_tool_calls"] = bool(kwargs["parallel_tool_calls"])
+
+
 def _apply_anthropic_reasoning_controls(payload: dict[str, Any], kwargs: dict[str, Any]) -> None:
     thinking, reasoning, reasoning_effort = _normalize_reasoning_controls(kwargs)
     thinking_config = _build_vendor_thinking_config(thinking, reasoning, reasoning_effort)
@@ -414,6 +419,7 @@ class OpenAICompatProvider(BaseLLMProvider):
             transformed_tools = transform_tools_for_provider(tools, self.name)
             if transformed_tools:
                 payload["tools"] = transformed_tools
+                _apply_parallel_tool_calls(payload, kwargs)
 
         tool_choice = kwargs.get("tool_choice")
         if tool_choice:
@@ -492,6 +498,7 @@ class OpenAICompatProvider(BaseLLMProvider):
             transformed_tools = transform_tools_for_provider(tools, self.name)
             if transformed_tools:
                 payload["tools"] = transformed_tools
+                _apply_parallel_tool_calls(payload, kwargs)
 
         tool_choice = kwargs.get("tool_choice")
         if tool_choice:

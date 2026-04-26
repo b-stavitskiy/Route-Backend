@@ -67,6 +67,7 @@ class ChatCompletionRequest(BaseModel):
     presence_penalty: float | None = Field(default=None, ge=-2, le=2)
     tools: list[Tool] | None = None
     tool_choice: str | dict | None = None
+    parallel_tool_calls: bool | None = None
     stream_options: StreamOptions | None = None
     thinking: dict[str, Any] | None = None
     reasoning_effort: str | None = None
@@ -595,6 +596,11 @@ async def chat_completions(
     if max_tokens is None or max_tokens > 32768:
         max_tokens = 32768
 
+    tools = [t.model_dump() for t in body.tools] if body.tools else None
+    parallel_tool_calls = body.parallel_tool_calls
+    if tools and parallel_tool_calls is None:
+        parallel_tool_calls = True
+
     if body.stream:
         usage_tracker = UsageTracker(redis)
         return StreamingResponse(
@@ -612,8 +618,9 @@ async def chat_completions(
                 frequency_penalty=body.frequency_penalty,
                 presence_penalty=body.presence_penalty,
                 stop=body.stop,
-                tools=[t.model_dump() for t in body.tools] if body.tools else None,
+                tools=tools,
                 tool_choice=body.tool_choice,
+                parallel_tool_calls=parallel_tool_calls,
                 stream_options=(body.stream_options.model_dump() if body.stream_options else None),
                 thinking=body.thinking,
                 reasoning_effort=body.reasoning_effort,
@@ -641,8 +648,9 @@ async def chat_completions(
         frequency_penalty=body.frequency_penalty,
         presence_penalty=body.presence_penalty,
         stop=body.stop,
-        tools=[t.model_dump() for t in body.tools] if body.tools else None,
+        tools=tools,
         tool_choice=body.tool_choice,
+        parallel_tool_calls=parallel_tool_calls,
         thinking=body.thinking,
         reasoning_effort=body.reasoning_effort,
         reasoning=body.reasoning,
