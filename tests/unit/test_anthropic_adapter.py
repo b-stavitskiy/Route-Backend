@@ -8,6 +8,24 @@ from apps.api.services.llm.anthropic_adapter import (
     openai_response_to_anthropic,
     openai_stream_chunk_to_anthropic_events,
 )
+from apps.api.services.llm.base import _anthropic_usage_to_openai_usage
+
+
+def test_anthropic_usage_counts_cache_tokens_as_prompt_tokens() -> None:
+    assert _anthropic_usage_to_openai_usage(
+        {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 20,
+            "cache_read_input_tokens": 30,
+            "output_tokens": 5,
+        }
+    ) == {
+        "prompt_tokens": 60,
+        "completion_tokens": 5,
+        "total_tokens": 65,
+        "prompt_tokens_details": {"cached_tokens": 30},
+        "cache_creation_input_tokens": 20,
+    }
 
 
 def test_anthropic_messages_to_openai_preserves_tool_loop_and_thinking() -> None:

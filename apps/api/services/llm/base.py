@@ -19,6 +19,31 @@ from packages.shared.exceptions import ProviderError, ProviderTimeoutError
 logger = logging.getLogger("routing.run.api")
 
 
+def _usage_int(usage: dict[str, Any], key: str) -> int:
+    value = usage.get(key, 0)
+    return value if isinstance(value, int) else 0
+
+
+def _anthropic_usage_to_openai_usage(usage_data: dict[str, Any]) -> dict[str, Any]:
+    cache_creation_tokens = _usage_int(usage_data, "cache_creation_input_tokens")
+    cache_read_tokens = _usage_int(usage_data, "cache_read_input_tokens")
+    prompt_tokens = (
+        _usage_int(usage_data, "input_tokens") + cache_creation_tokens + cache_read_tokens
+    )
+    completion_tokens = _usage_int(usage_data, "output_tokens")
+
+    usage = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+    }
+    if cache_read_tokens:
+        usage["prompt_tokens_details"] = {"cached_tokens": cache_read_tokens}
+    if cache_creation_tokens:
+        usage["cache_creation_input_tokens"] = cache_creation_tokens
+    return usage
+
+
 def _has_value(kwargs: dict[str, Any], key: str) -> bool:
     return key in kwargs and kwargs[key] is not None
 
@@ -683,11 +708,7 @@ class AnthropicCompatProvider(BaseLLMProvider):
                             "finish_reason": finish_reason,
                         }
                     ],
-                    "usage": {
-                        "prompt_tokens": usage_data.get("input_tokens", 0),
-                        "completion_tokens": usage_data.get("output_tokens", 0),
-                        "total_tokens": sum(usage_data.values()),
-                    },
+                    "usage": _anthropic_usage_to_openai_usage(usage_data),
                 }
             elif response.status_code == 429:
                 raise ProviderError("Rate limited", self.name)
@@ -915,22 +936,7 @@ class AnthropicCompatProvider(BaseLLMProvider):
                                 tool_call_index = None
 
                 if usage_data:
-                    input_tokens = usage_data.get("input_tokens", 0)
-                    output_tokens = usage_data.get("output_tokens", 0)
-
-                    usage_response = {
-                        "prompt_tokens": input_tokens,
-                        "completion_tokens": output_tokens,
-                        "total_tokens": input_tokens + output_tokens,
-                    }
-
-                    if "cache_creation_input_tokens" in usage_data:
-                        usage_response["prompt_tokens_details"] = {
-                            "cached_tokens": usage_data.get("cache_read_input_tokens", 0),
-                        }
-                        usage_response["cache_creation_input_tokens"] = usage_data.get(
-                            "cache_creation_input_tokens", 0
-                        )
+                    usage_response = _anthropic_usage_to_openai_usage(usage_data)
 
                     yield {
                         "event": "message",
