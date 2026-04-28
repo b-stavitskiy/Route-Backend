@@ -31,6 +31,11 @@ class FakeRouter:
         }
 
 
+class FakeErrorRouter:
+    async def route_chat_complete_stream(self, **_kwargs) -> AsyncGenerator[dict, None]:
+        yield {"event": "error", "provider": "fake-provider", "data": "upstream failed"}
+
+
 class FakeUsageTracker:
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -143,6 +148,35 @@ async def test_anthropic_stream_generator_emits_anthropic_sse_and_tracks_usage()
     assert usage_tracker.calls[0]["output_tokens"] == 2
     assert credit_manager.calls[0]["input_tokens"] == 5
     assert credit_manager.calls[0]["output_tokens"] == 2
+
+
+@pytest.mark.asyncio
+async def test_anthropic_stream_generator_emits_provider_errors() -> None:
+    usage_tracker = FakeUsageTracker()
+    credit_manager = FakeCreditManager()
+
+    chunks = [
+        chunk
+        async for chunk in anthropic_stream_generator(
+            router_instance=FakeErrorRouter(),
+            usage_tracker=usage_tracker,
+            credit_manager=credit_manager,
+            model="route/test",
+            messages=[{"role": "user", "content": "hi"}],
+            user_plan="free",
+            user_id="user_1",
+            api_key_id="key_1",
+            temperature=0.7,
+            max_tokens=32,
+        )
+    ]
+
+    events = decode_anthropic_sse(chunks)
+
+    assert [event[0] for event in events] == ["message_start", "error"]
+    assert events[1][1]["error"] == {"type": "api_error", "message": "upstream failed"}
+    assert usage_tracker.calls == []
+    assert credit_manager.calls == []
 
 
 @pytest.mark.asyncio

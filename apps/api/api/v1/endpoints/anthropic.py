@@ -170,6 +170,9 @@ async def anthropic_stream_generator(
         ):
             if not isinstance(chunk, dict):
                 continue
+            if chunk.get("event") == "error":
+                yield _anthropic_error_event(str(chunk.get("data", "Unknown provider error")))
+                return
             provider = chunk.get("provider") or provider
             data = chunk.get("data") or {}
             if isinstance(data, str):
